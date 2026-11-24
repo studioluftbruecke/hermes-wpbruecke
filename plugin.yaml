@@ -1,0 +1,111 @@
+name: wpbruecke
+version: "0.1.0"
+description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Hermes writes drafts, proves every change in a real browser at three widths, checks SEO, and leaves publishing to you: it has no publish action and stores no key that can publish. A review desk in Hermes Desktop shows every draft and staged change with its proof; publishing happens on your own WordPress login. Works on plain WordPress with an application password; an optional connector plugin adds a drafter role, signed draft previews and SEO fields; GeneratePress is an optional pack."
+author: "Studio Luftbrücke"
+license: MIT
+requires_hermes: ">=0.23.0"
+provides_tools:
+  - wp_doctor
+  - wp_sites
+  - wp_content
+  - wp_draft
+  - wp_desk
+  - wp_proof
+  - wp_seo
+  - wp_build
+provides_hooks:
+  - pre_tool_call
+  - post_approval_response
+config_schema:
+  key1:
+    type: secret
+    env: WPBRUECKE_KEY1
+    label: "Site key 1"
+    description: "The application password of the WordPress user Hermes works as on one site (wp-admin, Users, Profile, Application Passwords). Name this slot in the site file (key_slot: 1). Recommended: a user with the connector's drafter role or Contributor, so WordPress itself refuses a publish."
+  key2:
+    type: secret
+    env: WPBRUECKE_KEY2
+    label: "Site key 2"
+    description: "Application password for the site whose file says key_slot: 2."
+  key3:
+    type: secret
+    env: WPBRUECKE_KEY3
+    label: "Site key 3"
+    description: "Application password for the site whose file says key_slot: 3."
+  key4:
+    type: secret
+    env: WPBRUECKE_KEY4
+    label: "Site key 4"
+    description: "Application password for the site whose file says key_slot: 4."
+  key5:
+    type: secret
+    env: WPBRUECKE_KEY5
+    label: "Site key 5"
+    description: "Application password for the site whose file says key_slot: 5."
+  key6:
+    type: secret
+    env: WPBRUECKE_KEY6
+    label: "Site key 6"
+    description: "Application password for the site whose file says key_slot: 6."
+  key7:
+    type: secret
+    env: WPBRUECKE_KEY7
+    label: "Site key 7"
+    description: "Application password for the site whose file says key_slot: 7."
+  key8:
+    type: secret
+    env: WPBRUECKE_KEY8
+    label: "Site key 8"
+    description: "Application password for the site whose file says key_slot: 8."
+  key9:
+    type: secret
+    env: WPBRUECKE_KEY9
+    label: "Site key 9"
+    description: "Application password for the site whose file says key_slot: 9."
+  key10:
+    type: secret
+    env: WPBRUECKE_KEY10
+    label: "Site key 10"
+    description: "Application password for the site whose file says key_slot: 10."
+  key11:
+    type: secret
+    env: WPBRUECKE_KEY11
+    label: "Site key 11"
+    description: "Application password for the site whose file says key_slot: 11."
+  key12:
+    type: secret
+    env: WPBRUECKE_KEY12
+    label: "Site key 12"
+    description: "Application password for the site whose file says key_slot: 12."
+  agent_writes:
+    type: string
+    choices: [auto, always]
+    default: auto
+    label: "When Hermes asks before writing"
+    description: "auto: Hermes asks before a write only when the site's key can publish or edit live posts (a drafts-only key is held off live content by WordPress itself). always: Hermes asks before every write. A site file can override it (agent_writes)."
+  publishing_default:
+    type: string
+    choices: ["off", confirm, schedule]
+    default: "off"
+    label: "Publishing for new sites"
+    description: "What the review desk offers on a new site: off (a link to the WordPress editor), confirm or schedule (the connector's review screen, on your own WordPress login). The hard rule \"never publish, never send\" starts on for every site either way."
+  chromium_path:
+    type: string
+    default: ""
+    label: "Chromium for proofs (advanced)"
+    description: "Path to a Chromium binary for the proof browser. Empty: Hermes' own Chromium."
+  digest:
+    type: boolean
+    default: true
+    label: "Watcher reports"
+    description: "When the scheduled tick runs (hermes wpbruecke watch-setup), it reports new updates, slow sites and items waiting for you as well as outages. Off: outages only."
+  psi_key:
+    type: secret
+    env: WPBRUECKE_PSI_KEY
+    label: "PageSpeed Insights key (optional)"
+    description: "A Google API key restricted to the PageSpeed Insights API. Without it the SEO site check measures speed in Hermes' own browser and labels it local, not Google."
+  gsc_key:
+    type: secret
+    env: WPBRUECKE_GSC_KEY
+    label: "Search Console service account (optional)"
+    description: "The JSON key of a Google service account that you added as a Restricted user to the site's Search Console property; name the property in the site file (gsc_property). Read-only. Without it the post check shows no search queries."

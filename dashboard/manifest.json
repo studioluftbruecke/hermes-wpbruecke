@@ -1,0 +1,12 @@
+{
+  "name": "wpbruecke",
+  "label": "WPBrücke",
+  "description": "Backend routes for the WPBrücke page: overview, sites, review desk, proof and SEO jobs, build runs",
+  "icon": "Globe",
+  "version": "0.1.0",
+  "tab": {
+    "path": "/wpbruecke",
+    "hidden": true
+  },
+  "api": "plugin_api.py"
+}
