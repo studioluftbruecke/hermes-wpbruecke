@@ -238,7 +238,7 @@ def gather(site: dict, client: WordPressClient, wporg: Optional[WporgVersions] =
             if published[0]:
                 facts["last_post"] = {"id": published[0][0].get("id"), "date": published[0][0].get("date")}
         facts["counts"] = counts
-    if facts.get("connector_ns"):
+    if facts.get("connector_ns") and client.authenticated:  # /info needs a login; without one it answers 401
         info = _safe(lambda: client.get("/wp-json/wpbruecke/v1/info"), errors, "connector")
         if isinstance(info, dict):
             facts["connector"] = {k: info.get(k) for k in ("version", "role", "preview", "seo_field", "seo_plugin",

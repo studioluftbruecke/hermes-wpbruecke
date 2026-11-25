@@ -29,7 +29,7 @@ def site_report(rt: Runtime, site: dict, refresh: bool = True) -> dict:
     st = rt.standing(site, refresh=refresh)
     pairing = st.pairing
     facts = rt.site_facts(site, refresh=refresh)
-    ev = features_mod.evaluate(site, facts)
+    ev = rt.features(site, facts)
     proposal = sorted(set((facts.get("seo_public") or {}).get("third_party_hosts") or [])
                       - set((site.get("proof") or {}).get("extra_hosts") or []))
     lines = []
@@ -50,7 +50,8 @@ def site_report(rt: Runtime, site: dict, refresh: bool = True) -> dict:
                      "what the public sees")
     elif st.effective == "stopped":
         lines.append(f"stopped: {st.stop_reason}; nothing keyed runs until the person confirms again on the "
-                     "WPBrücke page")
+                     "WPBrücke page" if st.confirmable else
+                     f"stopped: {st.stop_reason}; nothing keyed runs until then. {st.restart()}")
     elif facts.get("user"):
         u = facts["user"]
         lines.append(f"key {key_env} belongs to {u.get('username')} ({', '.join(u.get('roles') or []) or 'no role'})"
@@ -60,7 +61,9 @@ def site_report(rt: Runtime, site: dict, refresh: bool = True) -> dict:
         lines.append(f"key {key_env} did not authenticate as {site.get('login')}: "
                      f"{(auth_err or {}).get('message', 'no answer')}")
     conn = facts.get("connector")
-    lines.append(f"connector: {conn.get('version')}" if conn else "connector: not installed (optional)")
+    lines.append(f"connector: {conn.get('version')}" if conn else
+                 "connector: installed (its version shows once the password is sent)" if facts.get("connector_ns") else
+                 "connector: not installed (optional)")
     return {
         "site": site["id"], "url": site["url"], "reachable": bool(facts.get("reachable")),
         "rest_ms": facts.get("rest_ms"), "wp_version": facts.get("wp_version"), "theme": facts.get("theme"),

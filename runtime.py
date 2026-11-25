@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 
 from . import enforce as enforce_mod
 from . import facts as facts_mod
+from . import features as features_mod
 from . import groups as groups_mod
 from . import migration as migration_mod
 from . import settings as settings_mod
@@ -117,6 +118,11 @@ class Runtime:
 
     def site_facts(self, site: dict, refresh: bool = False) -> dict:
         return self.facts.get(site, self.client, refresh=refresh, wporg=self.wporg)
+
+    def features(self, site: dict, facts: dict) -> dict:
+        """features.evaluate, told why the password is held back when it is (stopped, unconfirmed)."""
+        held = enforce_mod.held_reason(self.standing(site)) if site.get("key_slot") else None
+        return features_mod.evaluate(site, facts, held)
 
     def host(self, site: dict) -> str:
         return host_of(site)

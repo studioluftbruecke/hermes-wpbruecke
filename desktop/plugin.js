@@ -795,7 +795,7 @@ function levelNote(row) {
   if (a.act === 'connect') return 'A public site: Hermes reads what the public sees. Connect it in Connections to let Hermes write.'
   if (a.act === 'confirm') return 'Hermes does nothing with this site\'s password until you confirm its access in Connections.'
   if (row.effective === 'lowered') return 'WordPress narrowed this site\'s Hermes user; Hermes follows the narrower role.'
-  if (row.level === 'publish') return 'Hermes may publish here: the Publish level you confirmed.'
+  if (row.level === 'publish') return 'Hermes can publish here: the Publish level you confirmed.'
   if (row.level === 'drafts') return 'Hermes writes drafts here. You publish in WordPress.'
   return 'Hermes reads this site and never writes.'
 }
@@ -1513,7 +1513,7 @@ function ConfirmBlock({ g, check, again, after, recheck, extra }) {
       const res = await rest('/sites/' + enc(site) + '/confirm', { method: 'POST', body: { level: check.level, caps_fp: check.caps_fp } })
       if (res && res.ok === false && !res.state) setNote({ bad: true, text: res.message || 'Not confirmed.' })
     } catch (e) {
-      if (e.status === 409 && e.body && e.body.error === 'changed') setNote({ text: e.body.message || 'WordPress changed what this user may do. Read the new line and confirm that one.' })
+      if (e.status === 409 && e.body && e.body.error === 'changed') setNote({ text: e.body.message || 'WordPress changed what this user can do. Read the new line and confirm that one.' })
       else setNote({ bad: true, text: (e.body && e.body.message) || e.message })
     } finally {
       setBusy(false)
@@ -1755,19 +1755,19 @@ function Guide({ data, href, open, toggle, first }) {
       el(Badge, { tone: null }, 'Use Site ' + n),
       el('span', { className: 'wpb-sp' }),
       first ? null : el(Btn, { kind: 'ghost', onClick: toggle, test: 'guide-close' }, 'Close')),
-    el('p', { className: 'wpb-muted', style: { maxWidth: '72ch' } }, 'Hermes works as a WordPress user you create for it. Its role decides what Hermes may do.'),
+    el('p', { className: 'wpb-muted', style: { maxWidth: '72ch' } }, 'Hermes connects to WordPress with its own user you need to create for it. Its role decides what Hermes can do.'),
     el('ol', {},
       el('li', {}, el('div', {},
-        el('span', {}, 'In WordPress, Users, Add New: create a user named ', el('b', {}, 'hermes'), ' with an email of its own and the role for the level you want.'),
+        el('span', {}, 'In WordPress → Users → Add New User. There, create a user named ', el('b', {}, 'hermes'), ' with an email of its own and the role for the level you want.'),
         el('dl', { className: 'wpb-levels', 'data-test': 'levels' },
           LEVEL_ROWS.map(([lvl, role]) => [el('dt', { key: lvl + 't' }, lvl), el('dd', { key: lvl + 'd' }, role)]),
           el('dt', { className: 'wpb-no' }, 'Administrator'), el('dd', {}, 'Refused: too wide for Hermes.')))),
       el('li', {}, el('div', {},
-        el('span', {}, 'Open that user\'s profile. Under Application Passwords, add one named ', el('b', {}, 'Hermes'), ' and copy it.'))),
+        el('span', {}, 'In WordPress → Users → ', el('b', {}, 'hermes'), '. Under Application Passwords, add one named ', el('b', {}, 'Hermes'), ' and copy it.'))),
       el('li', {}, el('div', {},
         el('span', {}, 'Open the settings and fill ', el('b', {}, 'Site ' + n + ' · address'), ', ', el('b', {}, 'Site ' + n + ' · WordPress user'), ' and ', el('b', {}, 'Site ' + n + ' · application password'), '. Save, then come back here.'),
         el('div', { className: 'wpb-actions' }, el(Btn, { kind: 'primary', onClick: () => host.navigate(href), test: 'guide-settings' }, 'Open the settings'))))),
-    el('p', { className: 'wpb-xs wpb-muted' }, 'Back here, WPBrücke checks the connection and asks you to confirm what Hermes may do.'))
+    el('p', { className: 'wpb-xs wpb-muted' }, 'Back here, WPBrücke checks the connection and asks you to confirm what Hermes can do.'))
 }
 
 function PublicSites({ rows, go }) {
@@ -1835,7 +1835,7 @@ function ConnectView({ q, overview, go }) {
   const [guideOpen, setGuideOpen] = useState(null)
   const head = el('div', { className: 'wpb-lede' },
     el('h2', { className: 'wpb-h2' }, 'Connections'),
-    el('p', {}, 'Each site is a WordPress user you create for Hermes. Its role decides what Hermes may do there.'))
+    el('p', {}, 'Each WordPress site needs a dedicated user for Hermes. Its role decides what Hermes can do.'))
   const guard = guardData(q, 'Connections')
   if (guard) return el('div', { 'data-test': 'connect' }, head, guard)
   const data = q.data
@@ -1888,7 +1888,7 @@ function SettingsView({ site, siteRow, sites, go, compact }) {
   const patch = useSitePatch(site)
   const href = useSettingsHref()
   const head = compact ? null : el('div', { className: 'wpb-lede' }, el('h2', { className: 'wpb-h2' }, 'Settings for this site'),
-    el('p', {}, 'What Hermes may do here is the WordPress role you confirmed. Passwords stay in Hermes\' own settings form.'),
+    el('p', {}, 'What Hermes can do here is the WordPress role you confirmed. Passwords stay in Hermes\' own settings form.'),
     el(SitePicker, { sites, value: site, onChange: x => go({ view: 'settings', site: x }) }))
   const guard = guardData(q, 'This site')
   if (guard) return el('div', {}, head, guard)
@@ -1919,11 +1919,11 @@ function SettingsView({ site, siteRow, sites, go, compact }) {
             el('div', { className: 'wpb-rights' },
               el(Badge, { tone: access.tone }, access.text),
               (rights || []).map(r => el(Badge, { key: r, tone: GOOD_RIGHTS.includes(r) ? 'good' : null }, r))),
-            words ? el('span', { className: 'wpb-small', 'data-test': 'level-words' }, 'Hermes may ' + words + '.') : null,
+            words ? el('span', { className: 'wpb-small', 'data-test': 'level-words' }, 'Hermes can ' + words + '.') : null,
             row.effective === 'stopped' && row.stop_reason ? el('span', { className: 'wpb-small', style: { color: 'var(--wpb-bad)' }, 'data-test': 'stop-reason' }, 'Stopped: ' + row.stop_reason + '.') : null,
             detail ? el('span', { className: 'wpb-xs wpb-muted' }, detail) : null,
             el('div', { className: 'wpb-actions' },
-              access.act === 'confirm' ? el(Btn, { kind: 'primary', onClick: () => go({ view: 'connect' }), test: 'confirm-again' }, row.effective === 'stopped' ? 'Confirm again' : 'Confirm') : null,
+              access.act === 'confirm' ? el(Btn, { kind: 'primary', onClick: () => go({ view: 'connect' }), test: 'confirm-again' }, row.effective !== 'stopped' ? 'Confirm' : row.restart_action === 'check' ? 'Check again' : 'Confirm again') : null,
               access.act === 'connect' ? el(Btn, { onClick: () => go({ view: 'connect' }), test: 'connect-site' }, 'Connect with a password') : null,
               groupN ? el(Btn, { kind: 'ghost', onClick: () => host.navigate(href), test: 'password-link' }, 'Change the password') : null))),
         el('div', { className: 'wpb-set', 'data-test': 'automations' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Recurring drafts'), el('span', {}, 'Scheduled runs')),

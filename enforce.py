@@ -24,6 +24,7 @@ from .client import WPError
 READ_TTL_S = 60.0
 WRITE_TTL_S = 5.0
 CONNECTOR_NS_INFO = "/wp-json/wpbruecke/v1/info"
+RESTART_CONFIRM = "Confirm again on the WPBrücke page."
 
 _CACHE: dict = {}
 _LOCK = threading.Lock()
@@ -58,6 +59,30 @@ class Standing:
     def uploads(self) -> bool:
         return bool(self.live) and "upload_files" in set(self.live.caps)
 
+    @property
+    def confirmable(self) -> bool:
+        """Confirm again restarts a stopped site only when WordPress offers a level to confirm; an
+        administrator, a user without a role or a revoked password needs a fix in WordPress first."""
+        return bool(self.live) and self.live.error is None and self.live.level in access_mod.LEVELS
+
+    @property
+    def restart_action(self) -> Optional[str]:
+        """``confirm`` or ``check``: the page button that restarts a stopped site; None when not stopped."""
+        if self.effective != "stopped":
+            return None
+        return "confirm" if self.confirmable else "check"
+
+    def restart(self) -> Optional[str]:
+        """The person's next step for a stopped site, one sentence; None when the site is not stopped."""
+        if self.restart_action is None:
+            return None
+        if self.restart_action == "confirm":
+            return RESTART_CONFIRM
+        if self.live and self.live.error == "auth":
+            return ("Put a new application password into this site's settings, then click Check again on the "
+                    "WPBrücke page.")
+        return "Change the WordPress user's role, then click Check again on the WPBrücke page."
+
     def words(self) -> Optional[str]:
         if not self.keyed:
             return access_mod.level_words("read_public") if not self.access else None
@@ -69,6 +94,7 @@ class Standing:
         """The fields the page reads per site (overview, desk)."""
         return {"level": (self.access or {}).get("level"), "effective": self.effective,
                 "level_in_force": self.level, "level_words": self.words(), "stop_reason": self.stop_reason,
+                "restart": self.restart(), "restart_action": self.restart_action,
                 "uploads": self.uploads if self.live else None, "can_publish": self.level == "publish"}
 
 
@@ -180,6 +206,7 @@ def standing(rt: Any, site: dict, refresh: bool = False, max_age: float = READ_T
 
 
 NEXT_CONFIRM = {"label": "Open the WPBrücke page", "action": "confirm"}
+NEXT_CHECK = {"label": "Open the WPBrücke page", "action": "check"}
 
 
 def refusal_for(st: Standing, action: str) -> Optional[Refusal]:
@@ -198,10 +225,20 @@ def refusal_for(st: Standing, action: str) -> Optional[Refusal]:
     code = access_mod.allows(st.level, st.effective or "stopped", action, can_upload=st.uploads)
     if code is None:
         return None
+    if code == "level_stopped" and st.effective == "stopped" and not st.confirmable:
+        return Refusal(code, f"WPBrücke stopped this site because {st.stop_reason}. {st.restart()} Nothing was sent.",
+                       NEXT_CHECK, st.effective, st.level)
     message = access_mod.REFUSALS[code]
     if code == "level_stopped" and st.stop_reason:
         message += f" Why: {st.stop_reason}."
     return Refusal(code, message + " Nothing was sent.", NEXT_CONFIRM, st.effective, st.level)
+
+
+def held_reason(st: Standing) -> Optional[str]:
+    """Why the password is not sent now, for the feature list (a stopped or unconfirmed site reads what
+    the public sees, so its missing rights are not an authentication failure); None when it is sent."""
+    ref = refusal_for(st, "keyed_read")
+    return ref.message.removesuffix(" Nothing was sent.") if ref else None
 
 
 def require(rt: Any, site: dict, action: str) -> Optional[Refusal]:

@@ -1,6 +1,6 @@
 name: wpbruecke
-version: "0.2.0"
-description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Hermes works on your WordPress sites as a WordPress user you create for it. Its role decides what Hermes may do: read, write drafts, or publish. WPBrücke refuses a user with wider rights than the level you confirmed. Hermes proves every change in a real browser at three widths and checks SEO; a review desk in Hermes Desktop shows every draft and staged change with its proof. Works on plain WordPress with an application password; an optional connector plugin adds a read-only role, a drafter role, signed draft previews and SEO fields; GeneratePress is an optional pack."
+version: "0.2.1"
+description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Each WordPress site needs a dedicated user for Hermes. Its role decides what Hermes can do: read, write drafts, or publish. WPBrücke refuses a user with wider rights than the level you confirmed. Hermes proves every change in a real browser at three widths and checks SEO; a review desk in Hermes Desktop shows every draft and staged change with its proof. Works on plain WordPress with an application password; an optional connector plugin adds a read-only role, a drafter role, signed draft previews and SEO fields; GeneratePress is an optional pack."
 author: "Studio Luftbrücke"
 license: MIT
 requires_hermes: ">=0.23.0"
@@ -21,17 +21,17 @@ config_schema:
     type: string
     default: ""
     label: "Site 1 · address"
-    description: "The address of a WordPress site Hermes works on (https://example.com); the WPBrücke page, Connect a site, walks you through it."
+    description: "The address of a WordPress site for Hermes (https://example.com). The WPBrücke page → Connect a site walks you through it."
   site1_user:
     type: string
     default: ""
     label: "Site 1 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 1 (its login or email); create one for Hermes and give it the role for what Hermes may do."
+    description: "The dedicated WordPress user for Hermes on Site 1 (its login or email). Its role decides what Hermes can do."
   site1_password:
     type: secret
     env: WPBRUECKE_KEY1
     label: "Site 1 · application password"
-    description: "The application password of Site 1's WordPress user (wp-admin, Users, the user, Application Passwords)."
+    description: "The application password of Site 1's WordPress user (WordPress → Users → the user → Application Passwords)."
   site2_url:
     type: string
     default: ""
@@ -41,7 +41,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 2 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 2 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 2 (its login or email)."
   site2_password:
     type: secret
     env: WPBRUECKE_KEY2
@@ -56,7 +56,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 3 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 3 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 3 (its login or email)."
   site3_password:
     type: secret
     env: WPBRUECKE_KEY3
@@ -71,7 +71,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 4 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 4 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 4 (its login or email)."
   site4_password:
     type: secret
     env: WPBRUECKE_KEY4
@@ -86,7 +86,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 5 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 5 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 5 (its login or email)."
   site5_password:
     type: secret
     env: WPBRUECKE_KEY5
@@ -101,7 +101,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 6 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 6 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 6 (its login or email)."
   site6_password:
     type: secret
     env: WPBRUECKE_KEY6
@@ -116,7 +116,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 7 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 7 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 7 (its login or email)."
   site7_password:
     type: secret
     env: WPBRUECKE_KEY7
@@ -131,7 +131,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 8 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 8 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 8 (its login or email)."
   site8_password:
     type: secret
     env: WPBRUECKE_KEY8
@@ -146,7 +146,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 9 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 9 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 9 (its login or email)."
   site9_password:
     type: secret
     env: WPBRUECKE_KEY9
@@ -161,7 +161,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 10 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 10 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 10 (its login or email)."
   site10_password:
     type: secret
     env: WPBRUECKE_KEY10
@@ -176,7 +176,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 11 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 11 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 11 (its login or email)."
   site11_password:
     type: secret
     env: WPBRUECKE_KEY11
@@ -191,7 +191,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 12 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 12 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 12 (its login or email)."
   site12_password:
     type: secret
     env: WPBRUECKE_KEY12
@@ -206,7 +206,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 13 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 13 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 13 (its login or email)."
   site13_password:
     type: secret
     env: WPBRUECKE_KEY13
@@ -221,7 +221,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 14 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 14 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 14 (its login or email)."
   site14_password:
     type: secret
     env: WPBRUECKE_KEY14
@@ -236,7 +236,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 15 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 15 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 15 (its login or email)."
   site15_password:
     type: secret
     env: WPBRUECKE_KEY15
@@ -251,7 +251,7 @@ config_schema:
     type: string
     default: ""
     label: "Site 16 · WordPress user"
-    description: "The WordPress user Hermes works as on Site 16 (its login or email)."
+    description: "The dedicated WordPress user for Hermes on Site 16 (its login or email)."
   site16_password:
     type: secret
     env: WPBRUECKE_KEY16

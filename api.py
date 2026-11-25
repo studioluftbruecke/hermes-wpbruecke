@@ -63,7 +63,8 @@ def overview(rt: Runtime) -> "tuple[int, dict]":
         if row.get("effective") == "stopped":
             needs.append({"kind": "stopped", "site": row["id"], "title": f"{row['label']} is stopped",
                           "detail": f"{row.get('stop_reason') or 'the user rights changed'}. Nothing keyed runs until "
-                                    "you confirm again.", "when": "now", "urgent": True,
+                                    + ("then. " + row["restart"] if row.get("restart_action") == "check"
+                                       else "you confirm again."), "when": "now", "urgent": True,
                           "go": {"view": "settings", "site": row["id"]}})
         elif row.get("effective") == "unconfirmed" and row.get("pairing") == "paired":
             needs.append({"kind": "confirm", "site": row["id"], "title": f"Confirm the access level of {row['label']}",
@@ -112,7 +113,7 @@ def site_detail(rt: Runtime, site_id: str) -> "tuple[int, dict]":
     except NotFound as e:
         return _err(404, "not_found", str(e))
     facts = rt.site_facts(site)
-    ev = features_mod.evaluate(site, facts)
+    ev = rt.features(site, facts)
     public = {k: v for k, v in facts.items() if not k.startswith("_")}
     return 200, {"ok": True, "site": site, "facts": public, "rights": features_mod.rights_words(facts),
                  "available": [f["feature"] for f in ev["available"]], "not_available": ev["unavailable"],

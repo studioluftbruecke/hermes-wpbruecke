@@ -58,12 +58,15 @@ def _connector(facts: dict) -> bool:
     return bool(facts.get("connector") or facts.get("connector_ns"))
 
 
-def check(rule: FeatureRule, site: dict, facts: dict) -> Optional[str]:
-    """None when available, else the reason (one sentence, with the fix)."""
+def check(rule: FeatureRule, site: dict, facts: dict, held: Optional[str] = None) -> Optional[str]:
+    """None when available, else the reason (one sentence, with the fix). ``held``: why the password is
+    not sent now (enforce.held_reason); facts read without it lack rights for that reason, not a bad key."""
     if not facts.get("reachable"):
         return "the site did not answer"
     if rule.keyed and not site.get("key_slot"):
         return f"no password for this site; {rule.fix or 'connect it in a Site N group of the plugin settings'}"
+    if rule.keyed and held and not facts.get("keyed"):
+        return held
     if rule.keyed and not facts.get("rights"):
         return "the key did not authenticate; run the doctor"
     missing = [r for r in rule.rights if not (facts.get("rights") or {}).get(r)]
@@ -79,10 +82,10 @@ def check(rule: FeatureRule, site: dict, facts: dict) -> Optional[str]:
     return None
 
 
-def evaluate(site: dict, facts: dict) -> dict:
+def evaluate(site: dict, facts: dict, held: Optional[str] = None) -> dict:
     available, unavailable = [], []
     for rule in FEATURES:
-        why = check(rule, site, facts)
+        why = check(rule, site, facts, held)
         if why is None:
             available.append({"feature": rule.key, "label": rule.label})
         else:

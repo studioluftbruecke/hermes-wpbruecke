@@ -221,6 +221,71 @@ def test_revoked_password_stops_the_site(tmp_path, clock):
     assert st.effective == "stopped" and "no longer accepts" in st.stop_reason
 
 
+# --- what a stop tells the person to do (K test v0.2, F1 and F2) --------------------------------
+
+def stop_words(rt, now):
+    """Every surface that names the next step for a stopped site: tool refusal, doctor, page, tick."""
+    out = handlers(rt)[1]({"site": "s", "action": "list", "status": "draft"})
+    report = mod("tools.doctor").site_report(rt, rt.site("s"))
+    need = mod("api").overview(rt)[1]["needs_you"][0]
+    tick = " ".join(mod("tick").run_tick(rt, now=now)["lines"])
+    return out, report, need, tick
+
+
+def test_an_administrator_stop_says_fix_the_role_never_confirm(tmp_path, clock):
+    fake, rt = setup(tmp_path, "wpbruecke_drafter")
+    mod("tick").run_tick(rt, now=1000)
+    as_role(fake, "administrator")
+    clock[0] += 61
+    out, report, need, tick = stop_words(rt, 2000)
+    assert out["error"] == "level_stopped" and out["sent"] is False
+    assert out["next"]["action"] == "check" and "Change the WordPress user's role" in out["message"]
+    for text in (out["message"], " ".join(report["lines"]), need["detail"], tick):
+        assert "administrator" in text and "Check again" in text and "confirm again" not in text.lower(), text
+
+
+def test_a_wider_stop_still_asks_to_confirm_again(tmp_path, clock):
+    fake, rt = setup(tmp_path, "wpbruecke_drafter")
+    mod("tick").run_tick(rt, now=1000)
+    as_role(fake, "editor")
+    clock[0] += 61
+    out, report, need, tick = stop_words(rt, 2000)
+    assert out["next"]["action"] == "confirm" and "Confirm again on the WPBrücke page" in out["message"]
+    for text in (" ".join(report["lines"]), need["detail"], tick):
+        assert "confirm again" in text.lower() and "Check again" not in text, text
+
+
+def test_a_revoked_password_stop_asks_for_a_new_password(tmp_path, clock):
+    fake, rt = setup(tmp_path, "editor")
+    fake.password = "something else"
+    clock[0] += 61
+    out = handlers(rt)[1]({"site": "s", "action": "list", "status": "draft"})
+    assert out["next"]["action"] == "check" and "new application password" in out["message"]
+
+
+def test_a_stopped_site_never_blames_the_key_or_the_connector(tmp_path, clock):
+    fake, rt = setup(tmp_path, "wpbruecke_drafter")
+    as_role(fake, "administrator")
+    clock[0] += 61
+    before = len(fake.requests)
+    report = mod("tools.doctor").site_report(rt, rt.site("s"))
+    reasons = [f["because"] for f in report["not_available"]]
+    assert reasons and not any("did not authenticate" in r for r in reasons), reasons
+    assert any("stopped this site because the user now has rights Hermes refuses" in r for r in reasons), reasons
+    assert "connector: installed (its version shows once the password is sent)" in report["lines"]
+    assert not [e for e in report["errors"] if e.get("read") == "connector"]
+    info = [r for r in fake.requests[before:] if r["path"] == "/wp-json/wpbruecke/v1/info"]
+    assert all(r["auth"] for r in info)  # the keyless read of /info only ever answers 401
+
+
+def test_a_bad_key_on_a_live_site_still_says_it_did_not_authenticate(tmp_path):
+    features = mod("features")
+    site = {"id": "s", "key_slot": 1}
+    facts = {"reachable": True, "keyed": True, "rights": None}
+    why = features.check(features.BY_KEY["drafts"], site, facts)
+    assert why == "the key did not authenticate; run the doctor"
+
+
 # --- publishing: read back -----------------------------------------------------------------------
 
 def test_publish_schedule_apply_read_back(tmp_path):

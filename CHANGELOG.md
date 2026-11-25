@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.1
+
+From the first hands-on test of 0.2.0. Update both halves: the copy changes are in the Desktop half too.
+
+- **Clearer setup copy.** The Connect a site guide, the Connections page and the Agent settings say
+  that each WordPress site needs a dedicated user for Hermes, and that its role decides what Hermes
+  can do. The WordPress steps read as menu paths (WordPress → Users → Add New User).
+- **A stop names the step that restarts the site.** A site stopped by an administrator role, a user
+  without a role or a revoked password no longer says "confirm again" in the tool refusal, the
+  doctor, the page's waiting items or the watcher. It says what to fix (the role, or a new
+  application password) and to click Check again, with `next.action: check`. A wider role still
+  asks to confirm again.
+- **The doctor no longer blames the password while a site is stopped or unconfirmed.** Its feature
+  list gives the reason the password is held back instead of "the key did not authenticate", and it
+  reports an installed connector as installed (it no longer reads the connector's info route
+  without a login, which always answered 401).
+
 ## 0.2.0
 
 Sites live in Hermes' own plugin settings, and the WordPress role of the user you create for Hermes

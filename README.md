@@ -1,8 +1,8 @@
 # WPBrücke · for WordPress
 
-WPBrücke lets Hermes run one WordPress site or many. Hermes works on your WordPress sites as a
-WordPress user you create for it. Its role decides what Hermes may do: read, write drafts, or
-publish. WPBrücke refuses a user with wider rights than the level you confirmed.
+WPBrücke lets Hermes run one WordPress site or many. Each WordPress site needs a dedicated user for
+Hermes. Its role decides what Hermes can do: read, write drafts, or publish. WPBrücke refuses a user
+with wider rights than the level you confirmed.
 
 Hermes writes blog posts and page changes, proves every change in a real browser at three screen
 widths, checks SEO, and puts each result on a review desk. It never sends a newsletter.
@@ -56,9 +56,9 @@ the same version. With Hermes and Desktop on one computer, one install covers bo
 The WPBrücke page in Hermes Desktop walks you through this (**Connect a site**). It names the first
 free group, Site 1 to Site 16.
 
-1. **In WordPress, create a user for Hermes**, named `hermes`, with the role for the level you want
-   (table below). Use a user of its own, never your own login: the role is the limit, and a user
-   of its own can be changed or deleted without touching yours.
+1. **In WordPress → Users → Add New User**, create a user for Hermes named `hermes`, with the role
+   for the level you want (table below). Use a user of its own, never your own login: the role is
+   the limit, and a user of its own can be changed or deleted without touching yours.
 2. **Signed in as that user**: wp-admin → Users → Profile → **Application Passwords** → name it
    `Hermes` → **Add New Application Password**, and copy it.
 3. **In Hermes Desktop**: on the WPBrücke page, **Open the settings**, then fill **Site N ·
@@ -90,7 +90,7 @@ Optional extras:
 
 ## Access levels
 
-| Level | WordPress role of the Hermes user | What Hermes may do |
+| Level | WordPress role of the Hermes user | What Hermes can do |
 | --- | --- | --- |
 | Read | **WPBrücke reader** (connector 0.2.1 or newer) | Read posts, pages and drafts, run proof and SEO checks. Every write is refused by WordPress itself, over REST and XML-RPC; the role stores only read rights. Give the user this role alone: a reader with a second role is refused |
 | Drafts | **Contributor** (no images) or **WPBrücke drafter** (with images, connector) | Write drafts, staged copies of live posts and SEO fields. Publishing opens WordPress, where your own login publishes |
@@ -130,7 +130,7 @@ reader on 0.2.0 is refused until you upload 0.2.1, which removes them.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `site1_url` … `site16_url`, `site1_user` … `site16_user` | empty | Site N's address and the WordPress user Hermes works as (login or email); an empty address means the group is free |
+| `site1_url` … `site16_url`, `site1_user` … `site16_user` | empty | Site N's address and the dedicated WordPress user for Hermes (login or email); an empty address means the group is free |
 | `site1_password` … `site16_password` (secret, `WPBRUECKE_KEY1` … `WPBRUECKE_KEY16`) | empty | Site N's application password. WPBrücke sends it only to the address it was last checked against, over https |
 | `chromium_path` | empty (Hermes' Chromium) | Another Chromium for proofs |
 | `digest` | on | The watcher also reports updates, slow sites and items waiting; off: outages only |

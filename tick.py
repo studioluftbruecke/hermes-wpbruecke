@@ -55,7 +55,8 @@ def _tick(rt: Any, now: float, digest: bool) -> dict:
         label = site.get("label") or sid
         if st.effective == "stopped" and prev.get("effective") != "stopped":
             lines.append(f"{label} is stopped: {st.stop_reason}. Nothing keyed runs there until you confirm again "
-                         "on the WPBrücke page")
+                         "on the WPBrücke page" if st.confirmable else
+                         f"{label} is stopped: {st.stop_reason}. Nothing keyed runs there until then. {st.restart()}")
         facts = rt.site_facts(site, refresh=True)
         up = bool(facts.get("reachable"))
         hist = list(prev.get("rest_hist") or [])[-10:]

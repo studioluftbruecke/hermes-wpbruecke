@@ -71,7 +71,7 @@ STATES = {
     "refused": State(False, "{reason}", "Open the settings", "settings"),
     "needs_confirm": State(True, "Connected as {username} at {host}. WordPress lets this user {level_words}. Hermes "
                                  "will do exactly that.", "Confirm", "confirm"),
-    "confirmed": State(True, "Connected as {username} at {host}. Hermes may {level_words}.", "", "none"),
+    "confirmed": State(True, "Connected as {username} at {host}. Hermes can {level_words}.", "", "none"),
     "lowered": State(True, "WordPress now lets {username} only {level_words} at {host}; Hermes follows the narrower "
                            "role.", "", "none"),
     "stopped": State(False, "WPBrücke stopped {host}: {reason}. WordPress now lets {username} {level_words}.",

@@ -131,7 +131,7 @@ def handle(rt: Runtime, args: dict, author: str = "hermes") -> dict:
         if action == "get":
             site = rt.site(site_id)
             facts = rt.site_facts(site, refresh=refresh)
-            ev = features_mod.evaluate(site, facts)
+            ev = rt.features(site, facts)
             return {"ok": True, "site": site, "overview": overview_row(rt, site), "rights": features_mod.rights_words(facts),
                     "available": [f["feature"] for f in ev["available"]], "not_available": ev["unavailable"],
                     "versions": rt.sites.versions(site_id)[-5:]}

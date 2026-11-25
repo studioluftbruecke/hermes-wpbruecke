@@ -3,7 +3,7 @@
   "label": "WPBrücke",
   "description": "Backend routes for the WPBrücke page: overview, sites, review desk, proof and SEO jobs, build runs",
   "icon": "Globe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "tab": {
     "path": "/wpbruecke",
     "hidden": true

@@ -289,7 +289,7 @@ def decide_sites(rt, args: dict, run) -> dict:
         preview = f"{args.get('action')} the whole site file" + (f" (version {args.get('version')})" if args.get("version") else "")
     return {"verdict": "card", "rule_key": f"wpbruecke:wp_sites:{site}",
             "message": (f"This changes WPBrücke's rules for site {site} ({', '.join(touched)}):\n{preview}\n"
-                        "These fields decide what Hermes may do on the site.")}
+                        "These fields decide what Hermes can do on the site.")}
 
 
 def make_draft_handler(get_setting: SettingGetter, data_dir: Any, run_context, get_secret: SecretGetter = _default_secret,
