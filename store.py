@@ -15,6 +15,8 @@ Layout under the data dir (``ctx.state.data_dir`` in the agent half, the same fo
     seo/<report>.json                           SEO reports (seo/)
     jobs/<id>.json                              long work started from a route
     build/<run>.json                            GeneratePress pack runs
+    groups/<n>.json, groups/<n>.check.json      pairing record and last connection check per group
+    migration/<site>.json, migration/done.json  what a 0.1.0 site file said, and the migration marker
     locks/<store>.lock                          one lock file per store
 """
 from __future__ import annotations
@@ -31,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-STORES = ("sites", "facts", "desk", "proofs", "seo", "jobs", "build", "tick")
+STORES = ("sites", "facts", "desk", "proofs", "seo", "jobs", "build", "tick", "groups", "migration")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 

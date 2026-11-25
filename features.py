@@ -29,7 +29,7 @@ FEATURES = (
     FeatureRule("seo_site", "SEO site check (indexing, sitemap, robots.txt, description, speed)"),
     FeatureRule("proof_published", "Proof of published pages at three widths"),
     FeatureRule("read_content", "Read posts, pages, drafts and comments", keyed=True,
-                fix="add an application password in a key slot and name the slot in the site file"),
+                fix="connect the site in a Site N group of the plugin settings (the WPBrücke page, Connect a site)"),
     FeatureRule("drafts", "Write drafts (posts and pages)", rights=("draft",), keyed=True,
                 fix="use a WordPress user that can edit posts (Contributor or the connector's drafter role)"),
     FeatureRule("media", "Upload images with alt text", rights=("upload",), keyed=True,
@@ -43,7 +43,7 @@ FEATURES = (
     FeatureRule("seo_fields", "Write SEO title and description", keyed=True, connector=True,
                 fix="install the WPBrücke connector (or Yoast, Rank Math, SEOPress with the connector)"),
     FeatureRule("review_screen", "Publish and schedule from the desk (your own login, connector review screen)",
-                connector=True, fix="install the WPBrücke connector and turn off the site's hard rule"),
+                connector=True, fix="install the WPBrücke connector"),
     FeatureRule("updates", "Updates of WordPress, plugins and themes", rights=("install",), keyed=True,
                 fix="plugin lists need an administrator key; premium plugins need the connector"),
     FeatureRule("counts", "Drafts, pending posts and held comments", rights=("draft",), keyed=True,
@@ -63,7 +63,7 @@ def check(rule: FeatureRule, site: dict, facts: dict) -> Optional[str]:
     if not facts.get("reachable"):
         return "the site did not answer"
     if rule.keyed and not site.get("key_slot"):
-        return f"no key for this site; {rule.fix or 'add a key slot'}"
+        return f"no password for this site; {rule.fix or 'connect it in a Site N group of the plugin settings'}"
     if rule.keyed and not facts.get("rights"):
         return "the key did not authenticate; run the doctor"
     missing = [r for r in rule.rights if not (facts.get("rights") or {}).get(r)]
@@ -76,10 +76,6 @@ def check(rule: FeatureRule, site: dict, facts: dict) -> Optional[str]:
         return f"the connector is not installed; {rule.fix}"
     if rule.pack and not (site.get("packs") or {}).get(rule.pack):
         return f"the {rule.pack} pack is off; {rule.fix}"
-    if rule.key == "review_screen" and site.get("never_publish_never_send", True):
-        return "the hard rule \"never publish, never send\" is on for this site (your default); turn it off in the site's settings to offer desk publishing"
-    if rule.key == "review_screen" and site.get("publishing", "off") == "off":
-        return "publishing is off for this site, so the desk links to the WordPress editor"
     return None
 
 
@@ -115,20 +111,21 @@ def key_warnings(facts: dict) -> list:
     r = facts.get("rights") or {}
     out = []
     if r.get("install") or r.get("manage"):
-        out.append("This key can publish, install plugins and change settings. Hermes asks before every write. "
-                   "Recommended only for setup and test sites.")
+        out.append("This user can install plugins and change settings. WPBrücke refuses such a user: connect a "
+                   "user with a role from the WPBrücke page's table.")
     elif can_change_live(r):
-        out.append("This key can publish or edit live posts. Hermes asks before every write; WordPress will not "
-                   "stop a publish.")
+        out.append("This user can publish or edit live posts; WordPress will not stop a publish.")
     return out
 
 
-def access_label(facts: dict, site: dict) -> str:
+def access_label(facts: dict, site: dict, effective: str | None = None) -> str:
     if not site.get("key_slot"):
         return "not set up"
+    if effective in ("unconfirmed", "stopped"):
+        return "not confirmed" if effective == "unconfirmed" else "stopped"
     r = facts.get("rights") or {}
     if not r:
         return "key not working"
     if can_change_live(r):
-        return "admin: asks first" if r.get("manage") else "can publish: asks first"
+        return "admin: refused" if r.get("manage") else "can publish"
     return "drafts only" if r.get("draft") else "read only"

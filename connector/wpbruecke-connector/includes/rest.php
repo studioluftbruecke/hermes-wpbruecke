@@ -2,7 +2,8 @@
 /**
  * REST routes under wpbruecke/v1.
  *
- * GET  /info          edit_posts: connector facts; update counts only for update_plugins users.
+ * GET  /info          edit_posts: connector facts (reader: the reader role exists); update counts only for
+ *                     update_plugins users.
  * POST /preview-link  edit_post on that post: a signed preview link {url, expires_at}.
  * POST /gp/brand      edit_posts: stage a brand for review {staged: true, review_url}.
  *
@@ -43,6 +44,7 @@ function wpbruecke_rest_info() {
 		array(
 			'version'       => WPBRUECKE_CONNECTOR_VERSION,
 			'role'          => WPBRUECKE_ROLE,
+			'reader'        => (bool) get_role( WPBRUECKE_READER_ROLE ),
 			'preview'       => true,
 			'seo_field'     => true,
 			'seo_plugin'    => wpbruecke_seo_plugin(),

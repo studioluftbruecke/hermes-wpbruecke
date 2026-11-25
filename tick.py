@@ -1,8 +1,10 @@
 """The tick: read-only watchers and the digest, for a no-agent Hermes cron job (F13).
 
 ``hermes wpbruecke tick`` refreshes every site's facts (forced), compares them with the last tick and
-prints only what changed since the last tick (the first tick of a site sets the baseline): a site went down or came back, REST got slow, new updates appeared, more
-items wait on the desk. A clean tick prints nothing, so the no-agent cron job delivers nothing.
+prints only what changed since the last tick (the first tick of a site sets the baseline): a site went
+down or came back, REST got slow, new updates appeared, more items wait on the desk, a site stopped
+because its WordPress user's rights changed (the role is read again every tick; a stopped site reads
+only what the public sees). A clean tick prints nothing, so the no-agent cron job delivers nothing.
 It also reads back the live status of open desk items (a post the person published in WordPress
 shows as published on the desk). It never writes to WordPress. Overlapping ticks (cron and a manual
 run) are serialised by the ``tick`` lock; a busy tick returns at once.
@@ -49,6 +51,11 @@ def _tick(rt: Any, now: float, digest: bool) -> dict:
         sid = site["id"]
         sites_seen.append(sid)
         prev = state.get(sid) or {}
+        st = rt.standing(site, refresh=True)  # the role read again every tick; a stopped site reads only public
+        label = site.get("label") or sid
+        if st.effective == "stopped" and prev.get("effective") != "stopped":
+            lines.append(f"{label} is stopped: {st.stop_reason}. Nothing keyed runs there until you confirm again "
+                         "on the WPBrücke page")
         facts = rt.site_facts(site, refresh=True)
         up = bool(facts.get("reachable"))
         hist = list(prev.get("rest_hist") or [])[-10:]
@@ -56,8 +63,7 @@ def _tick(rt: Any, now: float, digest: bool) -> dict:
         cur = {"reachable": up, "rest_hist": (hist + [rest])[-10:] if up and rest is not None else hist,
                "updates": (facts.get("updates") or {}).get("count"), "down_since": prev.get("down_since"),
                "last_down_alert": prev.get("last_down_alert"), "slow": False,
-               "waiting": desk.counts(sid)["waiting"]}
-        label = site.get("label") or sid
+               "waiting": desk.counts(sid)["waiting"], "effective": st.effective}
         if not up:
             err = next((e.get("message") for e in facts.get("errors") or [] if e.get("read") == "/wp-json/"), "no answer")
             cur["down_since"] = prev.get("down_since") or now

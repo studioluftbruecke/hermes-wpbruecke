@@ -1,4 +1,4 @@
-from wpb_fakes import FakeWP, Settings, mod, secrets
+from wpb_fakes import ROLE_CAPS, FakeWP, Settings, create_paired, mod, secrets
 
 
 def make(tmp_path, fake, clock):
@@ -8,9 +8,9 @@ def make(tmp_path, fake, clock):
 
 
 def test_clean_tick_is_silent_and_a_down_site_is_reported_once_then_back(tmp_path):
-    fake, clock = FakeWP(), [1000.0]
+    fake, clock = FakeWP(caps=ROLE_CAPS["editor"], roles=["editor"]), [1000.0]
     rt = make(tmp_path, fake, clock)
-    rt.sites.create({"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1, "label": "Test"}, "person")
+    create_paired(rt, {"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1, "label": "Test"}, "person")
     tick = mod("tick")
     first = tick.run_tick(rt, now=clock[0])
     assert first["clean"] and tick.format_text(first) == ""
@@ -30,9 +30,9 @@ def test_clean_tick_is_silent_and_a_down_site_is_reported_once_then_back(tmp_pat
 
 
 def test_updates_and_desk_items_are_reported_when_they_grow(tmp_path):
-    fake, clock = FakeWP(), [1000.0]
+    fake, clock = FakeWP(caps=ROLE_CAPS["editor"], roles=["editor"]), [1000.0]
     rt = make(tmp_path, fake, clock)
-    rt.sites.create({"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1}, "person")
+    create_paired(rt, {"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1}, "person")
     tick = mod("tick")
     assert tick.run_tick(rt, now=1000)["clean"]
     rt.wporg = mod("facts").WporgVersions(rt.store, fetch=lambda u: {"offers": [{"current": "7.2.0"}]} if "core" in u else {"version": "9.0"},
@@ -41,15 +41,15 @@ def test_updates_and_desk_items_are_reported_when_they_grow(tmp_path):
     mod("desk").Desk(rt.store).create(site="s", site_url="https://test.example", kind="new_post", wp_type="post",
                                       wp_id=post["id"], title="Draft")
     lines = tick.run_tick(rt, now=2000)["lines"]
-    assert any("3 update(s) available (WordPress 7.2.0, akismet, twentytwentyfive)" in l for l in lines), lines
+    assert any("1 update(s) available (WordPress 7.2.0)" in l for l in lines), lines
     assert any("1 item(s) wait for you" in l for l in lines)
     assert tick.run_tick(rt, now=3000)["clean"]
 
 
 def test_tick_reads_back_a_publish_done_in_wordpress(tmp_path):
-    fake, clock = FakeWP(), [1000.0]
+    fake, clock = FakeWP(caps=ROLE_CAPS["editor"], roles=["editor"]), [1000.0]
     rt = make(tmp_path, fake, clock)
-    rt.sites.create({"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1}, "person")
+    create_paired(rt, {"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1}, "person")
     post = fake.add_post(status="draft")
     desk = mod("desk").Desk(rt.store)
     item = desk.create(site="s", site_url="https://test.example", kind="new_post", wp_type="post", wp_id=post["id"], title="x")
@@ -60,7 +60,7 @@ def test_tick_reads_back_a_publish_done_in_wordpress(tmp_path):
 
 
 def test_slow_site_and_digest_off(tmp_path):
-    fake, clock = FakeWP(), [1000.0]
+    fake, clock = FakeWP(caps=ROLE_CAPS["editor"], roles=["editor"]), [1000.0]
     rt = make(tmp_path, fake, clock)
     rt.sites.create({"id": "s", "url": "https://test.example"}, "person")
     tick = mod("tick")
@@ -81,7 +81,7 @@ def test_slow_site_and_digest_off(tmp_path):
 
 
 def test_busy_tick_returns_at_once(tmp_path):
-    fake, clock = FakeWP(), [1000.0]
+    fake, clock = FakeWP(caps=ROLE_CAPS["editor"], roles=["editor"]), [1000.0]
     rt = make(tmp_path, fake, clock)
     with rt.store.lock("tick"):
         r = mod("tick").run_tick(rt, now=1)

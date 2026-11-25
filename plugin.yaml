@@ -1,6 +1,6 @@
 name: wpbruecke
-version: "0.1.0"
-description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Hermes writes drafts, proves every change in a real browser at three widths, checks SEO, and leaves publishing to you: it has no publish action and stores no key that can publish. A review desk in Hermes Desktop shows every draft and staged change with its proof; publishing happens on your own WordPress login. Works on plain WordPress with an application password; an optional connector plugin adds a drafter role, signed draft previews and SEO fields; GeneratePress is an optional pack."
+version: "0.2.0"
+description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Hermes works on your WordPress sites as a WordPress user you create for it. Its role decides what Hermes may do: read, write drafts, or publish. WPBrücke refuses a user with wider rights than the level you confirmed. Hermes proves every change in a real browser at three widths and checks SEO; a review desk in Hermes Desktop shows every draft and staged change with its proof. Works on plain WordPress with an application password; an optional connector plugin adds a read-only role, a drafter role, signed draft previews and SEO fields; GeneratePress is an optional pack."
 author: "Studio Luftbrücke"
 license: MIT
 requires_hermes: ">=0.23.0"
@@ -17,78 +17,246 @@ provides_hooks:
   - pre_tool_call
   - post_approval_response
 config_schema:
-  key1:
+  site1_url:
+    type: string
+    default: ""
+    label: "Site 1 · address"
+    description: "The address of a WordPress site Hermes works on (https://example.com); the WPBrücke page, Connect a site, walks you through it."
+  site1_user:
+    type: string
+    default: ""
+    label: "Site 1 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 1 (its login or email); create one for Hermes and give it the role for what Hermes may do."
+  site1_password:
     type: secret
     env: WPBRUECKE_KEY1
-    label: "Site key 1"
-    description: "The application password of the WordPress user Hermes works as on one site (wp-admin, Users, Profile, Application Passwords). Name this slot in the site file (key_slot: 1). Recommended: a user with the connector's drafter role or Contributor, so WordPress itself refuses a publish."
-  key2:
+    label: "Site 1 · application password"
+    description: "The application password of Site 1's WordPress user (wp-admin, Users, the user, Application Passwords)."
+  site2_url:
+    type: string
+    default: ""
+    label: "Site 2 · address"
+    description: "The address of Site 2 (https://example.com); empty means the group is free."
+  site2_user:
+    type: string
+    default: ""
+    label: "Site 2 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 2 (its login or email)."
+  site2_password:
     type: secret
     env: WPBRUECKE_KEY2
-    label: "Site key 2"
-    description: "Application password for the site whose file says key_slot: 2."
-  key3:
+    label: "Site 2 · application password"
+    description: "The application password of Site 2's WordPress user."
+  site3_url:
+    type: string
+    default: ""
+    label: "Site 3 · address"
+    description: "The address of Site 3 (https://example.com); empty means the group is free."
+  site3_user:
+    type: string
+    default: ""
+    label: "Site 3 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 3 (its login or email)."
+  site3_password:
     type: secret
     env: WPBRUECKE_KEY3
-    label: "Site key 3"
-    description: "Application password for the site whose file says key_slot: 3."
-  key4:
+    label: "Site 3 · application password"
+    description: "The application password of Site 3's WordPress user."
+  site4_url:
+    type: string
+    default: ""
+    label: "Site 4 · address"
+    description: "The address of Site 4 (https://example.com); empty means the group is free."
+  site4_user:
+    type: string
+    default: ""
+    label: "Site 4 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 4 (its login or email)."
+  site4_password:
     type: secret
     env: WPBRUECKE_KEY4
-    label: "Site key 4"
-    description: "Application password for the site whose file says key_slot: 4."
-  key5:
+    label: "Site 4 · application password"
+    description: "The application password of Site 4's WordPress user."
+  site5_url:
+    type: string
+    default: ""
+    label: "Site 5 · address"
+    description: "The address of Site 5 (https://example.com); empty means the group is free."
+  site5_user:
+    type: string
+    default: ""
+    label: "Site 5 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 5 (its login or email)."
+  site5_password:
     type: secret
     env: WPBRUECKE_KEY5
-    label: "Site key 5"
-    description: "Application password for the site whose file says key_slot: 5."
-  key6:
+    label: "Site 5 · application password"
+    description: "The application password of Site 5's WordPress user."
+  site6_url:
+    type: string
+    default: ""
+    label: "Site 6 · address"
+    description: "The address of Site 6 (https://example.com); empty means the group is free."
+  site6_user:
+    type: string
+    default: ""
+    label: "Site 6 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 6 (its login or email)."
+  site6_password:
     type: secret
     env: WPBRUECKE_KEY6
-    label: "Site key 6"
-    description: "Application password for the site whose file says key_slot: 6."
-  key7:
+    label: "Site 6 · application password"
+    description: "The application password of Site 6's WordPress user."
+  site7_url:
+    type: string
+    default: ""
+    label: "Site 7 · address"
+    description: "The address of Site 7 (https://example.com); empty means the group is free."
+  site7_user:
+    type: string
+    default: ""
+    label: "Site 7 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 7 (its login or email)."
+  site7_password:
     type: secret
     env: WPBRUECKE_KEY7
-    label: "Site key 7"
-    description: "Application password for the site whose file says key_slot: 7."
-  key8:
+    label: "Site 7 · application password"
+    description: "The application password of Site 7's WordPress user."
+  site8_url:
+    type: string
+    default: ""
+    label: "Site 8 · address"
+    description: "The address of Site 8 (https://example.com); empty means the group is free."
+  site8_user:
+    type: string
+    default: ""
+    label: "Site 8 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 8 (its login or email)."
+  site8_password:
     type: secret
     env: WPBRUECKE_KEY8
-    label: "Site key 8"
-    description: "Application password for the site whose file says key_slot: 8."
-  key9:
+    label: "Site 8 · application password"
+    description: "The application password of Site 8's WordPress user."
+  site9_url:
+    type: string
+    default: ""
+    label: "Site 9 · address"
+    description: "The address of Site 9 (https://example.com); empty means the group is free."
+  site9_user:
+    type: string
+    default: ""
+    label: "Site 9 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 9 (its login or email)."
+  site9_password:
     type: secret
     env: WPBRUECKE_KEY9
-    label: "Site key 9"
-    description: "Application password for the site whose file says key_slot: 9."
-  key10:
+    label: "Site 9 · application password"
+    description: "The application password of Site 9's WordPress user."
+  site10_url:
+    type: string
+    default: ""
+    label: "Site 10 · address"
+    description: "The address of Site 10 (https://example.com); empty means the group is free."
+  site10_user:
+    type: string
+    default: ""
+    label: "Site 10 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 10 (its login or email)."
+  site10_password:
     type: secret
     env: WPBRUECKE_KEY10
-    label: "Site key 10"
-    description: "Application password for the site whose file says key_slot: 10."
-  key11:
+    label: "Site 10 · application password"
+    description: "The application password of Site 10's WordPress user."
+  site11_url:
+    type: string
+    default: ""
+    label: "Site 11 · address"
+    description: "The address of Site 11 (https://example.com); empty means the group is free."
+  site11_user:
+    type: string
+    default: ""
+    label: "Site 11 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 11 (its login or email)."
+  site11_password:
     type: secret
     env: WPBRUECKE_KEY11
-    label: "Site key 11"
-    description: "Application password for the site whose file says key_slot: 11."
-  key12:
+    label: "Site 11 · application password"
+    description: "The application password of Site 11's WordPress user."
+  site12_url:
+    type: string
+    default: ""
+    label: "Site 12 · address"
+    description: "The address of Site 12 (https://example.com); empty means the group is free."
+  site12_user:
+    type: string
+    default: ""
+    label: "Site 12 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 12 (its login or email)."
+  site12_password:
     type: secret
     env: WPBRUECKE_KEY12
-    label: "Site key 12"
-    description: "Application password for the site whose file says key_slot: 12."
-  agent_writes:
+    label: "Site 12 · application password"
+    description: "The application password of Site 12's WordPress user."
+  site13_url:
     type: string
-    choices: [auto, always]
-    default: auto
-    label: "When Hermes asks before writing"
-    description: "auto: Hermes asks before a write only when the site's key can publish or edit live posts (a drafts-only key is held off live content by WordPress itself). always: Hermes asks before every write. A site file can override it (agent_writes)."
-  publishing_default:
+    default: ""
+    label: "Site 13 · address"
+    description: "The address of Site 13 (https://example.com); empty means the group is free."
+  site13_user:
     type: string
-    choices: ["off", confirm, schedule]
-    default: "off"
-    label: "Publishing for new sites"
-    description: "What the review desk offers on a new site: off (a link to the WordPress editor), confirm or schedule (the connector's review screen, on your own WordPress login). The hard rule \"never publish, never send\" starts on for every site either way."
+    default: ""
+    label: "Site 13 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 13 (its login or email)."
+  site13_password:
+    type: secret
+    env: WPBRUECKE_KEY13
+    label: "Site 13 · application password"
+    description: "The application password of Site 13's WordPress user."
+  site14_url:
+    type: string
+    default: ""
+    label: "Site 14 · address"
+    description: "The address of Site 14 (https://example.com); empty means the group is free."
+  site14_user:
+    type: string
+    default: ""
+    label: "Site 14 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 14 (its login or email)."
+  site14_password:
+    type: secret
+    env: WPBRUECKE_KEY14
+    label: "Site 14 · application password"
+    description: "The application password of Site 14's WordPress user."
+  site15_url:
+    type: string
+    default: ""
+    label: "Site 15 · address"
+    description: "The address of Site 15 (https://example.com); empty means the group is free."
+  site15_user:
+    type: string
+    default: ""
+    label: "Site 15 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 15 (its login or email)."
+  site15_password:
+    type: secret
+    env: WPBRUECKE_KEY15
+    label: "Site 15 · application password"
+    description: "The application password of Site 15's WordPress user."
+  site16_url:
+    type: string
+    default: ""
+    label: "Site 16 · address"
+    description: "The address of Site 16 (https://example.com); empty means the group is free."
+  site16_user:
+    type: string
+    default: ""
+    label: "Site 16 · WordPress user"
+    description: "The WordPress user Hermes works as on Site 16 (its login or email)."
+  site16_password:
+    type: secret
+    env: WPBRUECKE_KEY16
+    label: "Site 16 · application password"
+    description: "The application password of Site 16's WordPress user."
   chromium_path:
     type: string
     default: ""

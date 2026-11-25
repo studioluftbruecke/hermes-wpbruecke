@@ -2,10 +2,10 @@
 
 Every handler returns ``(status, body)``. Config and key problems answer 200 ``{ok: false, error,
 message, setting}``; refused clicks 403 or 409. The Desktop half reads the same shapes.
-The routes are the person's click lane: they mark items
-reviewed and ask for changes, but publishing happens only on the connector's review screen in
-wp-admin on the person's own WordPress login (D9 a); no route publishes and no route holds a key
-that can.
+The routes are the person's click lane: they mark items reviewed and ask for changes, publish,
+schedule and apply at the Publish level (the same level check as the tools), connect a settings
+group (``/groups``, ``/sites/check``, Confirm), revoke a site's password and remove a site. No route writes Hermes'
+settings: the page empties a group through Desktop's own settings call (contract § 11).
 """
 from __future__ import annotations
 
@@ -15,11 +15,15 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
+from . import access as access_mod
+from . import connect as connect_mod
 from . import features as features_mod
+from . import groups as groups_mod
+from . import migration as migration_mod
 from .client import WPError
 from .desk import OPEN, Desk, DeskError
 from .runtime import NotFound, Runtime
-from .sites import SiteError
+from .sites import DuplicateHost, SiteError, host_of, normalise_url
 from .store import Busy, StoreError, now_iso
 
 SETTINGS_URL = "/settings?tab=plugins&agent=wpbruecke"
@@ -56,6 +60,15 @@ def overview(rt: Runtime) -> "tuple[int, dict]":
     rows = [_site_row(rt, s, desk) for s in sites]
     needs = []
     for row in rows:
+        if row.get("effective") == "stopped":
+            needs.append({"kind": "stopped", "site": row["id"], "title": f"{row['label']} is stopped",
+                          "detail": f"{row.get('stop_reason') or 'the user rights changed'}. Nothing keyed runs until "
+                                    "you confirm again.", "when": "now", "urgent": True,
+                          "go": {"view": "settings", "site": row["id"]}})
+        elif row.get("effective") == "unconfirmed" and row.get("pairing") == "paired":
+            needs.append({"kind": "confirm", "site": row["id"], "title": f"Confirm the access level of {row['label']}",
+                          "detail": "Until you confirm it, Hermes reads only what the public sees.", "when": "",
+                          "urgent": False, "go": {"view": "settings", "site": row["id"]}})
         if not row["reachable"]:
             needs.append({"kind": "down", "site": row["id"], "title": f"{row['label']} does not answer",
                           "detail": "The site did not answer its REST index.", "when": "now", "urgent": True,
@@ -79,7 +92,8 @@ def overview(rt: Runtime) -> "tuple[int, dict]":
                           "go": {"view": "site", "site": row["id"]}})
         if row["access"] == "not set up":
             needs.append({"kind": "setup", "site": row["id"], "title": f"Add a key for {row['label']}",
-                          "detail": "Public facts only until a key slot is set.", "when": "", "urgent": False,
+                          "detail": "Public facts only; connect it in a Site N group to read drafts and write.",
+                          "when": "", "urgent": False,
                           "go": {"view": "settings", "site": row["id"]}})
     counts = desk.counts()
     strip = {"sites": len(rows), "keyed": sum(1 for r in rows if r["access"] not in ("not set up", "key not working")),
@@ -106,8 +120,13 @@ def site_detail(rt: Runtime, site_id: str) -> "tuple[int, dict]":
 
 
 def site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
+    from .tools.sites import refusal
+    fields = (body or {}).get("fields") or {}
+    refused = refusal(rt, {"action": "add", "fields": fields})
+    if refused:
+        return _err(403, "refused", refused["message"])
     try:
-        res = rt.sites.create((body or {}).get("fields") or {}, "page")
+        res = rt.sites.create(fields, "page")
     except SiteError as e:
         return _err(400, "invalid", str(e))
     return 200, {"ok": True, "site": res["site"], "diff": res["diff"], "version": res["version"], "changed": True}
@@ -117,6 +136,10 @@ def site_patch(rt: Runtime, site_id: str, body: dict) -> "tuple[int, dict]":
     changes = (body or {}).get("changes") or {}
     if not isinstance(changes, dict) or not changes:
         return _err(400, "bad_args", "changes: {field: value} needed")
+    from .tools.sites import refusal
+    refused = refusal(rt, {"action": "update", "site": site_id, "changes": changes})
+    if refused:
+        return _err(403, "refused", refused["message"])
     try:
         rt.site(site_id)
         res = rt.sites.update(site_id, changes, "page", preview=bool((body or {}).get("preview")))
@@ -181,33 +204,44 @@ def desk_list(rt: Runtime, site: str = "", kind: str = "") -> "tuple[int, dict]"
     if kind:
         items = [i for i in items if i.get("kind") in kinds.get(kind, (kind,))]
     out = []
+    can = _can_publish_by_site(rt, {i.get("site") for i in items})
     for i in items:
         proof = _proof(rt, i.get("proof_id"))
         shot = next((s for s in (proof or {}).get("shots") or [] if s.get("width") == max(
             [s2.get("width", 0) for s2 in (proof or {}).get("shots") or []] or [0])), None)
         out.append({**i, "thumb": _data_url(rt, i["proof_id"], shot.get("file")) if proof and shot else None,
-                    "proof_verdict": (proof or {}).get("verdict") or "not_proven", "chips": _chips(proof)})
+                    "proof_verdict": (proof or {}).get("verdict") or "not_proven", "chips": _chips(proof),
+                    "can_publish": bool(can.get(i.get("site")))})
     return 200, {"ok": True, "items": out, "counts": desk.counts(site)}
 
 
+def _can_publish_by_site(rt: Runtime, site_ids: set) -> dict:
+    out = {}
+    for sid in site_ids:
+        try:
+            out[sid] = rt.standing(rt.site(sid)).level == "publish"
+        except NotFound:
+            out[sid] = False
+    return out
+
+
 def _publishing(rt: Runtime, item: dict) -> dict:
+    """How the desk's Publish, Schedule and Apply buttons act for this item: directly at the Publish level
+    (``can_publish``), else as the v0.1 link into WordPress."""
     try:
         site = rt.site(item["site"])
     except NotFound:
-        return {"rule": True, "setting": "off", "can_link": False, "why": "the site file is gone"}
-    rule = bool(site.get("never_publish_never_send", True))
-    setting = site.get("publishing") or "off"
-    if rule:
-        return {"rule": True, "setting": setting, "can_link": False,
-                "why": "\"Never publish, never send\" is on for this site, so only the WordPress link is offered."}
-    if setting == "off":
-        return {"rule": False, "setting": setting, "can_link": False,
-                "why": "Publishing is off for this site: publish in WordPress."}
+        return {"level": None, "can_publish": False, "can_link": False, "why": "the site file is gone"}
+    st = rt.standing(site)
+    base = {"level": st.level, "effective": st.effective, "level_words": st.words(), "stop_reason": st.stop_reason,
+            "can_publish": st.level == "publish"}
+    if base["can_publish"]:
+        return {**base, "can_link": True, "why": "This site's Hermes user can publish: the buttons act directly."}
     facts = rt.site_facts(site)
     if not (facts.get("connector") or facts.get("connector_ns")):
-        return {"rule": False, "setting": setting, "can_link": False,
+        return {**base, "can_link": False,
                 "why": "The review screen needs the WPBrücke connector; the WordPress editor link works without it."}
-    return {"rule": False, "setting": setting, "can_link": True,
+    return {**base, "can_link": True,
             "why": "Opens the connector's review screen in WordPress, where your own login publishes."}
 
 
@@ -231,8 +265,9 @@ def desk_item(rt: Runtime, item_id: str) -> "tuple[int, dict]":
     for s in (proof or {}).get("shots") or []:
         shots[str(s.get("width"))] = {"after": _data_url(rt, item["proof_id"], s.get("file"), 720),
                                       "before": _data_url(rt, item["proof_id"], s.get("before_file"), 720)}
-    return 200, {"ok": True, "item": item, "proof": proof, "seo": _seo(rt, item.get("seo_id")), "shots": shots,
-                 "publishing": _publishing(rt, item)}
+    publishing = _publishing(rt, item)
+    return 200, {"ok": True, "item": {**item, "can_publish": publishing["can_publish"]}, "proof": proof,
+                 "seo": _seo(rt, item.get("seo_id")), "shots": shots, "publishing": publishing}
 
 
 def desk_review(rt: Runtime, item_id: str) -> "tuple[int, dict]":
@@ -261,13 +296,6 @@ def review_link(rt: Runtime, item_id: str, action: str) -> "tuple[int, dict]":
         site = rt.site(item["site"])
     except (DeskError, NotFound) as e:
         return _err(404, "not_found", str(e))
-    if site.get("never_publish_never_send", True):
-        return _err(403, "hard_rule", "\"Never publish, never send\" is on for this site; open the post in the "
-                    "WordPress editor instead (item.links.edit).")
-    if (site.get("publishing") or "off") == "off":
-        return _err(403, "publishing_off", "Publishing is off for this site; open the post in the WordPress editor.")
-    if action == "schedule" and site.get("publishing") != "schedule":
-        return _err(403, "publishing_off", "Scheduling is not switched on for this site.")
     if action == "apply" and item.get("kind") not in ("staged_edit", "seo_fix"):
         return _err(400, "bad_args", "only a staged copy can be applied")
     facts = rt.site_facts(site)
@@ -277,6 +305,85 @@ def review_link(rt: Runtime, item_id: str, action: str) -> "tuple[int, dict]":
     url = (f"{site['url'].rstrip('/')}/wp-admin/admin.php?page=wpbruecke-review&post={int(item['wp_id'])}"
            f"&wpb_action={action}")
     return 200, {"ok": True, "url": url, "kind": "review"}
+
+
+PUBLISH_STATUS = {"bad_args": 400, "not_found": 404, "no_key": 409}
+
+
+def desk_act(rt: Runtime, item_id: str, action: str, body: Optional[dict] = None) -> "tuple[int, dict]":
+    """The person's Publish, Schedule or Apply click (contract § 8): the same plan and level check as
+    wp_draft. Below the Publish level 403 ``level_*`` with the v0.1 link into WordPress."""
+    from .tools import draft as draft_mod
+    if action not in ("publish", "schedule", "apply"):
+        return _err(400, "bad_args", "action is publish, schedule or apply")
+    try:
+        item = Desk(rt.store).require(item_id)
+    except DeskError as e:
+        return _err(404, "not_found", str(e))
+    args = {"site": item["site"], "action": action, "item": item["id"]}
+    if action == "schedule":
+        args["date"] = str((body or {}).get("date") or "")
+    if action == "apply" and item.get("kind") not in ("staged_edit", "seo_fix"):
+        return _err(400, "bad_args", "only a staged copy can be applied")
+    try:
+        p = draft_mod.plan(rt, args)
+        result = draft_mod.execute(rt, p, created_by="person")
+    except draft_mod.Refused as r:
+        out = r.to_dict()
+        if r.code.startswith("level_") or r.code == "no_key":
+            link = review_link(rt, item_id, action)[1]
+            out["review_link"] = link.get("url") if link.get("ok") else item["links"]["edit"]
+            return 403, out
+        return PUBLISH_STATUS.get(r.code, 409), out
+    except WPError as e:
+        return 502, {"ok": False, **e.to_dict(), "sent": True}
+    return 200, {**result, "item": Desk(rt.store).get(item_id)}
+
+
+def site_revoke(rt: Runtime, site_id: str) -> "tuple[int, dict]":
+    """Delete this site's own application password in WordPress, with that password (contract § 10).
+    Only when its group is paired; read back with users/me, where 401 is the proof."""
+    from . import enforce
+    try:
+        site = rt.site(site_id)
+    except NotFound as e:
+        return _err(404, "not_found", str(e))
+    n = site.get("key_slot") or 0
+    if not n:
+        return _err(409, "public_site", f"site {site_id} has no password to revoke")
+    pairing = rt.pairing(site)
+    if pairing != "paired":
+        return _err(409, "not_paired", f"Site {n} is {pairing}; WPBrücke sends its password only when it is paired, "
+                                       "so revoke it in wp-admin, Users, Application Passwords")
+    client = rt.key_client(site)
+    record = rt.records.get(n)
+    uuid = getattr(record, "app_password_uuid", None)
+    try:
+        if not uuid:
+            uuid = (client.get("/wp-json/wp/v2/users/me/application-passwords/introspect") or {}).get("uuid")
+        if not uuid:
+            return 200, {"ok": False, "revoked": False, "http": None,
+                         "message": "WordPress did not say which application password this is; revoke it in wp-admin."}
+        resp = client.raw("DELETE", f"/wp-json/wp/v2/users/me/application-passwords/{uuid}")
+    except WPError as e:
+        return 200, {"ok": False, "revoked": False, "http": e.status or None, "message": e.message}
+    enforce.forget(rt, site_id)
+    body = None
+    try:
+        body = resp.json()
+    except WPError:
+        pass
+    deleted = resp.status == 200 and isinstance(body, dict) and bool(body.get("deleted", True))
+    try:
+        after = client.raw("GET", "/wp-json/wp/v2/users/me", params={"context": "edit"}).status
+    except WPError:
+        after = None
+    revoked = deleted and after == 401
+    message = (f"WordPress deleted the application password of Site {n}; it no longer opens {host_of(site)}. Empty "
+               f"Site {n} next." if revoked else
+               f"WordPress answered HTTP {resp.status} and users/me {after}; check Application Passwords in wp-admin.")
+    return 200, {"ok": revoked, "revoked": revoked, "http": resp.status, "read_back": {"users_me": after},
+                 "message": message}
 
 
 # --- jobs ---------------------------------------------------------------------------------------
@@ -384,3 +491,119 @@ def build_gate(rt: Runtime, run_id: str, body: dict) -> "tuple[int, dict]":
 def doctor(rt: Runtime, site: str = "") -> "tuple[int, dict]":
     from .tools import doctor as doctor_tool
     return 200, doctor_tool.run(rt, site or None, refresh=False)
+
+
+# --- groups: connect a site (contract §§ 9, 10, 12) ---------------------------------------------
+
+CONFIRMABLE = ("needs_confirm", "confirmed", "lowered", "stopped")
+
+
+def settings_href(profile: str = "") -> str:
+    return SETTINGS_URL + (f"&profile={profile}" if profile else "")
+
+
+def _legacy(rt: Runtime):
+    return lambda site_id: migration_mod.legacy_of(rt.store, site_id)
+
+
+def groups_view(rt: Runtime, profile: str = "") -> "tuple[int, dict]":
+    sites = [s for s in rt.sites.all() if "error" not in s]
+    waiting = migration_mod.pending(rt.store)
+    rows = []
+    for g in rt.groups():
+        site = next((s for s in sites if s.get("key_slot") == g.n), None)
+        state = groups_mod.pairing(g, rt.records.get(g.n))
+        if state == "free" and site is not None:
+            state = "group_empty"
+        rows.append({"n": g.n, "url": g.url, "user": g.user, "set": g.set, "fp": g.fp, "state": state,
+                     "site_id": site["id"] if site else None, "host": g.host, "error": g.error,
+                     "check": rt.records.last_check(g.n),
+                     "migrate": waiting.get(g.n) if not g.url and g.n in waiting else None})
+    free = next((r["n"] for r in rows if r["state"] == "free" and not r["migrate"]), None)
+    return 200, {"ok": True, "groups": rows, "free": free, "used": sum(1 for r in rows if r["url"]),
+                 "settings_href": settings_href(profile), "profile": profile}
+
+
+def _group_number(body: dict) -> "int | None":
+    try:
+        return int((body or {}).get("group"))
+    except (TypeError, ValueError):
+        return None
+
+
+def sites_check(rt: Runtime, body: dict, profile: str = "") -> "tuple[int, dict]":
+    n = _group_number(body)
+    if n is None:
+        return _err(400, "bad_args", "group: a number from 1 to 16")
+    try:
+        rt.group(n)
+    except NotFound as e:
+        return _err(404, "not_found", str(e))
+    return 200, connect_mod.run_check(rt, n, settings_href(profile), legacy=_legacy(rt))
+
+
+def site_confirm(rt: Runtime, site_id: str, body: dict, profile: str = "") -> "tuple[int, dict]":
+    """The person's Confirm: re-read the role live and record the level only when it is still what the
+    page showed."""
+    try:
+        site = rt.site(site_id)
+    except NotFound as e:
+        return _err(404, "not_found", str(e))
+    n = site.get("key_slot") or 0
+    if not n:
+        return _err(409, "public_site", f"site {site_id} has no password, so it has no access level to confirm")
+    level, caps_fp = str((body or {}).get("level") or ""), str((body or {}).get("caps_fp") or "")
+    if level not in access_mod.LEVELS or not caps_fp:
+        return _err(400, "bad_args", f"level ({', '.join(access_mod.LEVELS)}) and caps_fp needed")
+    href = settings_href(profile)
+    res = connect_mod.run_check(rt, n, href, legacy=_legacy(rt))
+    if res.get("state") not in CONFIRMABLE or res.get("site_id") != site_id or res.get("level") != level \
+            or res.get("caps_fp") != caps_fp:
+        return 409, {"ok": False, "error": "changed", "check": res,
+                     "message": "What WordPress says about this user changed since the page showed it. Look at the "
+                                "new reading and confirm that one."}
+    granted = {"level": level, "role": res.get("role") or "", "caps_fingerprint": caps_fp, "confirmed_at": now_iso()}
+    try:
+        rt.sites.update(site_id, {"access": granted}, "page", confirm=True)
+    except SiteError as e:
+        return _err(409, "refused", str(e))
+    final = connect_mod.judge(res, granted, settings_href=href)
+    rt.records.put_check(n, final)
+    from . import enforce
+    enforce.forget(rt, site_id)
+    return 200, final
+
+
+def site_delete(rt: Runtime, site_id: str) -> "tuple[int, dict]":
+    try:
+        site = rt.site(site_id)
+    except NotFound as e:
+        return _err(404, "not_found", str(e))
+    n = site.get("key_slot") or 0
+    if n and rt.group(n).url:
+        return _err(409, "group_filled", f"Site {n} still has an address. Empty Site {n} · address and Site {n} · "
+                                         "WordPress user first, then remove the site file.", "settings")
+    removed = rt.sites.delete(site_id)
+    return 200, {"ok": True, "removed": removed, "site": site_id,
+                 "note": "only the site file is gone; nothing changed on WordPress; versions stay in history"}
+
+
+def public_site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
+    body = body or {}
+    try:
+        url = normalise_url(str(body.get("url") or ""))
+    except SiteError as e:
+        return _err(400, "invalid", str(e))
+    host = groups_mod.host(url)
+    clash = next((s for s in rt.sites.all() if "error" not in s and host_of(s) == host), None)
+    if clash is not None:
+        return _err(409, "duplicate", f"{host} is already site {clash['id']}")
+    site_id = groups_mod.site_id_for(host, set(rt.sites.ids()))
+    try:
+        res = rt.sites.create({"id": site_id, "url": url, "connect_ip": body.get("connect_ip") or "",
+                               "key_slot": 0}, "page")
+    except DuplicateHost as e:
+        return _err(409, "duplicate", str(e))
+    except SiteError as e:
+        return _err(400, "invalid", str(e))
+    return 200, {"ok": True, "site": res["site"], "version": res["version"]}

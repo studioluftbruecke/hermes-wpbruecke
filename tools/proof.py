@@ -40,6 +40,12 @@ SCHEMA = {
 }
 
 
+class LevelRefused(ValueError):
+    def __init__(self, refusal) -> None:
+        super().__init__(refusal.message)
+        self.refusal = refusal
+
+
 def _preview_link(client, post_id: int) -> Optional[str]:
     try:
         return client.post("/wp-json/wpbruecke/v1/preview-link", {"post_id": int(post_id)}).get("url")
@@ -70,7 +76,13 @@ def resolve(rt: Runtime, args: dict) -> dict:
             raise ValueError(f"{url} is not on {host}; the proof browser reaches only the site itself")
         return {"site": site, "url": url, "before_url": None, "target": {**target, "url": url}}
     client = rt.client(site)
-    post = client.get(f"/wp-json/wp/v2/{ptype}s/{int(pid)}", **({"context": "edit"} if client.authenticated else {}))
+    try:
+        post = client.get(f"/wp-json/wp/v2/{ptype}s/{int(pid)}", **({"context": "edit"} if client.authenticated else {}))
+    except WPError:
+        refusal = rt.require(site, "keyed_read") if site.get("key_slot") else None
+        if refusal is not None:  # a draft needs a keyed read, which this site's level does not allow now
+            raise LevelRefused(refusal) from None
+        raise
     status = post.get("status")
     before = None
     if item and item.get("source_id"):
@@ -136,6 +148,8 @@ def summary(run: dict) -> dict:
 def handle(rt: Runtime, args: dict) -> Any:
     try:
         run = prove(rt, args)
+    except LevelRefused as e:
+        return e.refusal.to_dict()
     except Busy:
         return {"ok": False, "error": "busy", "message": "Another proof is running; try again in a few seconds.",
                 "retry_after_s": 10}

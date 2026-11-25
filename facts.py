@@ -285,10 +285,11 @@ class FactsCache:
     def get(self, site: dict, client_factory: Callable[[dict], WordPressClient], refresh: bool = False,
             wporg: Optional[WporgVersions] = None) -> dict:
         cached = self.read(site["id"])
-        if not refresh and cached and (self.age(cached) or 1e9) < MAX_AGE_S and cached.get("keyed") == bool(site.get("key_slot")):
+        client = client_factory(site)
+        if not refresh and cached and (self.age(cached) or 1e9) < MAX_AGE_S and cached.get("keyed") == client.authenticated:
             cached["cache"] = "hit"
             return cached
-        fresh = gather(site, client_factory(site), wporg)
+        fresh = gather(site, client, wporg)
         fresh["_t"] = self.clock()
         with self.store.lock("facts"):
             self.store.write_json(self.store.path("facts", f"{site['id']}.json"), fresh)

@@ -1,13 +1,16 @@
-// WPBrücke · for WordPress: the Desktop half. One page (/wpbruecke) with five views (Home, Review desk,
-// SEO, Build run, Settings), a sidebar row "WPBrücke · N" (N = desk items waiting for you; the shared
-// sidebar-row module, hidden or moved in the settings), three palette commands, a settings page and the
-// transcript directive ::wp-draft{site="..." id="..."}.
+// WPBrücke · for WordPress: the Desktop half. One page (/wpbruecke) with six views (Home, Review desk,
+// SEO, Build run, Connections, Settings), a sidebar row "WPBrücke · N" (N = desk items waiting for you;
+// the shared sidebar-row module, hidden or moved in the settings), three palette commands, a settings
+// page and the transcript directive ::wp-draft{site="..." id="..."}.
 //
 // Everything the page shows comes from this plugin's own backend routes (dashboard/plugin_api.py) through
-// ctx.rest, polled with React Query; the page holds no WordPress password and never publishes. Publish,
-// Schedule and Apply open the connector's review screen in the browser, where a person's own WordPress
-// login does the click; they exist only when the route says `can_link`. "New blog draft" and "Ask for
-// changes" fill the chat composer and never send.
+// ctx.rest, polled with React Query; the page never holds a WordPress password. A site is connected in
+// Hermes' own settings form (Site N · address, user, application password); Connections guides that,
+// checks the connection and records the access level on the person's Confirm. Opening the settings form
+// unmounts this page, so every connection state is derived from GET /groups and GET /overview on each
+// mount, never from component state. Publish, Schedule and Apply act directly when the site's level is
+// Publish (`can_publish`); below it they open WordPress, where a person's own login does the click.
+// "New blog draft" and "Ask for changes" fill the chat composer and never send.
 //
 // Plain ESM, loaded uncompiled: jsx() calls, imports only @hermes/plugin-sdk, react and
 // react/jsx-runtime. Theme variables only; one scoped stylesheet with wpb- classes.
@@ -39,7 +42,8 @@ const JOB_POLL_MS = 2000
 const SETTINGS_HREF = '/settings?tab=plugins&agent=wpbruecke'
 const SITE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 const ITEM_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
-const VIEWS = ['home', 'desk', 'seo', 'build', 'settings', 'site']
+const VIEWS = ['home', 'desk', 'seo', 'build', 'connect', 'settings', 'site']
+const LIMIT_LINE = 'Only the WordPress role holds against everything; anything with shell access on the Hermes host can read the stored password.'
 
 let pluginCtx = null
 // The sidebar row (the shared module below), kept here so the settings page can draw its Sidebar section.
@@ -250,6 +254,40 @@ color:var(--wpb-fg);font-size:13px;line-height:1.5;-webkit-font-smoothing:antial
 .wpb-dcard .wpb-th{background:var(--wpb-sub);padding:8px;display:flex;align-items:flex-start}
 .wpb-dcard .wpb-th img{width:100%;height:auto;border-radius:3px;border:1px solid var(--wpb-line);display:block}
 .wpb-dcard .wpb-bd{padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.wpb-gcard{padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+.wpb-gcard[data-tone=bad]{border-color:color-mix(in srgb,var(--wpb-bad) 45%,var(--wpb-line))}
+.wpb-gcard[data-tone=confirm]{border-color:color-mix(in srgb,var(--wpb-acc) 55%,var(--wpb-line));box-shadow:inset 3px 0 0 var(--wpb-acc)}
+.wpb-ghead{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.wpb-ghead .wpb-gn{font-family:var(--wpb-mono);font-size:11px;color:var(--wpb-muted);white-space:nowrap}
+.wpb-ghead b{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.wpb-ghead .wpb-sp{flex:1}
+.wpb-gmsg{max-width:72ch;overflow-wrap:anywhere}
+.wpb-gmsg code,.wpb-code{font-family:var(--wpb-mono);font-size:11.5px;background:var(--wpb-sub2);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+.wpb-confirm{font-size:14px;line-height:1.55;max-width:66ch}
+.wpb-limit{display:flex;gap:7px;align-items:flex-start;font-size:12.5px;color:color-mix(in srgb,var(--wpb-fg) 74%,transparent);max-width:72ch;padding-top:8px;border-top:1px solid var(--wpb-line)}
+.wpb-limit .codicon{margin-top:3px;flex:none}
+.wpb-guide{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.wpb-guide ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;counter-reset:wpbstep}
+.wpb-guide li{display:grid;grid-template-columns:26px minmax(0,1fr);gap:10px;counter-increment:wpbstep}
+.wpb-guide li::before{content:counter(wpbstep);width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:600 11px var(--wpb-mono);border:1px solid var(--wpb-line2)}
+.wpb-guide li>div{display:flex;flex-direction:column;gap:6px;min-width:0;padding-top:2px}
+.wpb-levels{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 14px;font-size:12px;padding:8px 10px;background:var(--wpb-sub);border-radius:var(--wpb-r);margin:0}
+.wpb-levels dt{font-weight:600} .wpb-levels dd{margin:0;color:var(--wpb-muted)}
+.wpb-levels .wpb-no{color:var(--wpb-bad)}
+.wpb-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.wpb-field label{font-size:12px;font-weight:560}
+.wpb-input{font:inherit;font-size:12.5px;color:var(--wpb-fg);background:var(--wpb-panel);border:1px solid var(--wpb-line2);border-radius:var(--wpb-r);padding:5px 8px;min-width:0;width:100%}
+.wpb-input:focus-visible{outline:2px solid var(--wpb-acc);outline-offset:1px}
+.wpb-inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.wpb-inline .wpb-input{flex:1 1 220px;width:auto}
+.wpb-steps{display:flex;flex-direction:column;gap:6px;font-size:12px;padding:10px;border-radius:var(--wpb-r);background:var(--wpb-sub)}
+.wpb-steps>div{display:flex;gap:8px;align-items:flex-start}
+.wpb-steps .wpb-mk{font-family:var(--wpb-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;min-width:44px;padding-top:1px;color:var(--wpb-muted)}
+.wpb-steps .wpb-mk-ok{color:var(--wpb-ok)} .wpb-steps .wpb-mk-fail{color:var(--wpb-bad)} .wpb-steps .wpb-mk-run{color:var(--wpb-acc)}
+.wpb-check-box{display:inline-flex;gap:7px;align-items:center;font-size:12px;cursor:pointer}
+.wpb-check-box input{margin:0;accent-color:var(--wpb-acc)}
+.wpb-publine{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.wpb-publine .wpb-input{width:auto;flex:0 1 210px}
 @container wpb (max-width: 900px){
  .wpb-grid2,.wpb-desk{grid-template-columns:minmax(0,1fr)}
  .wpb-shots{grid-template-columns:minmax(0,1fr)}
@@ -343,7 +381,11 @@ function useRoute_(key, path, opts) {
   })
 }
 
-const useOverview = () => useRoute_(['overview'], '/overview')
+// Opening Hermes' settings form unmounts the page; coming back must read the groups and sites again
+// (a cached answer from before the settings were saved would hide the new group), so these two
+// refetch on every mount.
+const useOverview = () => useRoute_(['overview'], '/overview', { refetchOnMount: 'always' })
+const useGroups = () => useRoute_(['groups'], '/groups', { refetchOnMount: 'always' })
 const useSite = site => useRoute_(['site', site], '/sites/' + enc(site), { enabled: Boolean(site) })
 const useDesk = site => useRoute_(['desk', site || ''], '/desk' + (site ? '?site=' + enc(site) : ''))
 const useDeskItem = item => useRoute_(['item', item], '/desk/' + enc(item), { enabled: Boolean(item) })
@@ -511,6 +553,18 @@ function widthName(w) {
 }
 const frameClass = w => ({ Desktop: '', Tablet: 'wpb-tablet', Mobile: 'wpb-mobile' })[widthName(w)]
 
+// A desk Publish, Schedule or Apply answer as one line: the route's sentence plus what WordPress reads
+// back (status, and the date of a scheduled post).
+function readBack(action, res) {
+  const verb = { publish: 'Published', schedule: 'Scheduled', apply: 'Applied' }[action] || 'Done'
+  const rb = (res && res.read_back) || {}
+  const item = (res && res.item) || {}
+  const status = rb.status || item.live_status || (res && res.status)
+  const date = rb.date || (res && res.date)
+  const head = (res && res.message) || verb + '.'
+  return head + (status ? ' WordPress reads it back as ' + status + (action === 'schedule' && date ? ' for ' + date : '') + '.' : '')
+}
+
 const safeImg = src => (typeof src === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(src) ? src : null)
 
 function host_(url) {
@@ -634,7 +688,7 @@ function SetupProblem({ data }) {
     test: 'setup-problem',
     title: 'WPBrücke needs one more setting',
     text: data.message + (data.setting ? ' (' + data.setting + ')' : ''),
-    actions: [el(Btn, { key: 's', kind: 'primary', onClick: () => host.navigate(SETTINGS_HREF) }, 'Open the plugin settings')]
+    actions: [el(Btn, { key: 's', kind: 'primary', onClick: () => host.navigate(settingsHref(host.state && host.state.profile && typeof host.state.profile.get === 'function' ? host.state.profile.get() : '')) }, 'Open the plugin settings')]
   })
 }
 
@@ -652,11 +706,20 @@ function healthOf(row) {
   return ['ok', 'REST ' + ((row.rest_ms || 0) / 1000).toFixed(2) + ' s']
 }
 
-function accessTone(access) {
-  if (access === 'drafts only' || access === 'read only') return 'good'
-  if (access === 'not set up' || access === 'key not working') return 'warn'
-  return 'warn'
+const LEVEL_NAME = { read_public: 'Public reads', read: 'Read', drafts: 'Drafts', publish: 'Publish' }
+
+// A site row's access as one badge: the level the person confirmed, or what stops it. A row without a
+// group is a public site (no password).
+function accessOf(row) {
+  if (!row || !row.group || typeof row.group !== 'number') return { tone: null, text: 'Public site', act: 'connect' }
+  if (row.effective === 'stopped') return { tone: 'bad', text: 'Stopped', act: 'confirm' }
+  if (row.effective === 'unconfirmed' || !row.level) return { tone: 'warn', text: 'Confirm needed', act: 'confirm' }
+  if (row.effective === 'lowered') return { tone: 'warn', text: 'Lowered from ' + (LEVEL_NAME[row.level] || row.level) }
+  return { tone: 'good', text: LEVEL_NAME[row.level] || row.level }
 }
+
+// The site's own group label ("Clients") when the row carries it; a number is the Site N group.
+const labelGroup = row => (typeof row.label_group === 'string' ? row.label_group : typeof row.group === 'string' ? row.group : '')
 
 // ── Needs you (aside) ────────────────────────────────────────────────────────────────────────────
 
@@ -681,6 +744,8 @@ function SiteHome({ row, needs, go, many }) {
   const autos = (site.data && site.data.site && site.data.site.automations) || []
   const score = seo.data && seo.data.site_report ? seo.data.site_report.score : null
   const [tone, health] = healthOf(row)
+  const access = accessOf(row)
+  const publishes = row.level === 'publish' && (row.effective === 'confirmed' || !row.effective)
   const newDraft = () => draftInChat('Write a blog draft for @wp:' + row.id + ' about ')
   return el('div', { 'data-test': 'site-home', 'data-site': row.id },
     many ? el('div', { className: 'wpb-crumb' }, el('button', { className: 'wpb-link', onClick: () => go({ view: 'home' }), type: 'button' }, 'Fleet'), el('span', { className: 'wpb-muted' }, '›'), el('span', {}, row.label)) : null,
@@ -694,7 +759,7 @@ function SiteHome({ row, needs, go, many }) {
             el(Badge, {}, row.wp_version ? 'WordPress ' + row.wp_version : 'WordPress version hidden'),
             el(Badge, {}, 'Theme: ' + (row.theme || 'unknown')),
             el('span', { className: 'wpb-health' }, el(Dot, { tone }), health),
-            el(Badge, { tone: accessTone(row.access) }, 'Access: ' + row.access)))),
+            el(Badge, { tone: access.tone }, 'Access: ' + access.text)))),
       el('div', { className: 'wpb-actions' },
         el(Btn, { kind: 'primary', onClick: newDraft, test: 'new-draft', icon: 'sparkle' }, 'New blog draft with Hermes'),
         el(Btn, { onClick: () => openExternal(row.wp_admin_url), ext: true }, 'Open wp-admin'))),
@@ -719,16 +784,27 @@ function SiteHome({ row, needs, go, many }) {
           el('h2', { className: 'wpb-h2' }, 'Recurring drafts'),
           autos.length
             ? autos.map(a => el('div', { key: a.id, className: 'wpb-row' },
-              el('span', {}, el('b', {}, a.id.replace(/-/g, ' ')), el('br', {}), el('span', { className: 'wpb-xs wpb-muted' }, cronWords(a.schedule) + ' · lands as a ' + (a.post_type || 'post') + ' draft, never published')),
+              el('span', {}, el('b', {}, a.id.replace(/-/g, ' ')), el('br', {}), el('span', { className: 'wpb-xs wpb-muted' }, cronWords(a.schedule) + ' · ' + (a.publish && publishes ? 'publishes the ' + (a.post_type || 'post') : 'lands as a ' + (a.post_type || 'post') + ' draft'))),
               el(Badge, { tone: a.enabled ? null : 'warn' }, a.enabled ? 'Hermes scheduled job' : 'paused')))
             : el('div', { className: 'wpb-row wpb-muted wpb-small' }, 'None yet. Tell Hermes, for example: every Monday, a draft from my notes folder.'))),
-      el(NeedsYou, { needs, go, note: row.hard_rule ? 'Hermes writes drafts. Publishing is yours: in WordPress, or from the desk if you switch the hard rule off for this site.' : 'Hermes writes drafts. The desk opens the review screen in wp-admin, where your own login publishes.' })))
+      el(NeedsYou, { needs, go, note: levelNote(row) })))
+}
+
+function levelNote(row) {
+  const a = accessOf(row)
+  if (a.act === 'connect') return 'A public site: Hermes reads what the public sees. Connect it in Connections to let Hermes write.'
+  if (a.act === 'confirm') return 'Hermes does nothing with this site\'s password until you confirm its access in Connections.'
+  if (row.effective === 'lowered') return 'WordPress narrowed this site\'s Hermes user; Hermes follows the narrower role.'
+  if (row.level === 'publish') return 'Hermes may publish here: the Publish level you confirmed.'
+  if (row.level === 'drafts') return 'Hermes writes drafts here. You publish in WordPress.'
+  return 'Hermes reads this site and never writes.'
 }
 
 // ── Home: the fleet ──────────────────────────────────────────────────────────────────────────────
 
 function SiteCard({ row, go }) {
   const [tone, health] = healthOf(row)
+  const access = accessOf(row)
   return el('article', { className: 'wpb-panel wpb-site', 'data-test': 'site-card', 'data-site': row.id },
     el('div', { className: 'wpb-site-h' },
       el('span', { className: 'wpb-mark' }, row.mark || '··'),
@@ -744,11 +820,11 @@ function SiteCard({ row, go }) {
       el('div', {}, el('b', {}, row.updates == null ? '—' : String(row.updates)), el('span', {}, 'updates')),
       el('div', {}, el('b', {}, row.last_post ? dayMonth(row.last_post.date) : '—'), el('span', {}, 'last post'))),
     el('div', { className: 'wpb-site-b' },
-      el('div', { className: 'wpb-access' },
-        el('span', {}, 'Access: ', el('b', {}, row.access)),
-        row.access === 'not set up' || row.access === 'key not working'
-          ? el(Btn, { onClick: () => go({ view: 'settings', site: row.id }) }, 'Add a key')
-          : el('span', { className: 'wpb-xs wpb-muted' }, row.hard_rule ? 'never publishes' : 'publishing: ' + row.publishing))),
+      el('div', { className: 'wpb-access', 'data-test': 'card-access' },
+        el('span', {}, 'Access: ', el('b', {}, access.text)),
+        access.act
+          ? el(Btn, { onClick: () => go({ view: 'connect' }), test: 'card-' + access.act }, access.act === 'connect' ? 'Connect' : 'Confirm')
+          : el('span', { className: 'wpb-xs wpb-muted' }, row.level_words || ''))),
     el('div', { className: 'wpb-site-f' },
       el(Btn, { onClick: () => go({ view: 'site', site: row.id }), test: 'open-site' }, 'Open site'),
       row.cockpit_url ? el(Btn, { kind: 'ghost', onClick: () => openTarget(row.cockpit_url), test: 'cockpit-link' }, 'Coolify') : null,
@@ -760,17 +836,17 @@ function Fleet({ data, go }) {
   const rows = data.sites || []
   const groups = []
   for (const r of rows) {
-    const g = r.group || ''
+    const g = labelGroup(r)
     const found = groups.find(x => x.id === g)
     if (found) found.n += 1
     else groups.push({ id: g, n: 1 })
   }
-  const shown = rows.filter(r => group === 'all' || (r.group || '') === group)
+  const shown = rows.filter(r => group === 'all' || labelGroup(r) === group)
   const s = data.strip || {}
   return el('div', { 'data-test': 'fleet' },
     el('div', { className: 'wpb-strip', 'data-test': 'strip' },
       el('div', {}, el('b', {}, String(s.sites ?? rows.length)), el('span', {}, 'sites')),
-      el('div', {}, el('b', {}, (s.keyed ?? 0) + '/' + (s.sites ?? rows.length)), el('span', {}, 'with a working key')),
+      el('div', {}, el('b', {}, (s.keyed ?? 0) + '/' + (s.sites ?? rows.length)), el('span', {}, 'connected')),
       el('div', {}, el('b', {}, String(s.waiting ?? 0)), el('span', {}, 'waiting for you')),
       el('div', {}, el('b', {}, String(s.updates ?? 0)), el('span', {}, 'updates')),
       el('div', {}, el('b', {}, String(s.slow ?? 0)), el('span', {}, s.slow === 1 ? 'slow site' : 'slow sites'))),
@@ -830,12 +906,15 @@ function DeskDetail({ itemId, siteRow, go }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(null)
   const [problem, setProblem] = useState(null)
+  const [actResult, setActResult] = useState(null)
+  const [when, setWhen] = useState('')
   const job = useJob(() => invalidate())
   useEffect(() => {
     setLinkResult(null)
     setAsking(false)
     setNote('')
     setProblem(null)
+    setActResult(null)
   }, [itemId])
   if (!itemId) return el('div', { className: 'wpb-panel wpb-detail wpb-muted', 'data-test': 'detail' }, 'Pick an item on the left.')
   const guard = guardData(q, 'This item')
@@ -849,9 +928,12 @@ function DeskDetail({ itemId, siteRow, go }) {
   const diffRow = ((proof && proof.diff) || []).find(d => Number(d.width) === w)
   const isNew = item.kind === 'new_post' || item.kind === 'new_page' || item.kind === 'build_page'
   const checks = ((proof && proof.checks) || []).filter(c => c.width == null || Number(c.width) === w)
-  const pub = publishing || { rule: true, setting: 'off', can_link: false, why: '' }
+  const pub = publishing || { can_link: false, why: '' }
+  // M3 adds `can_publish` (the site's level is Publish); a backend without it keeps v0.1's link only.
+  const canPublish = item.can_publish === true || pub.can_publish === true
   const edit = item.links && item.links.edit
   const open = isOpen(item)
+  const staged = item.kind === 'staged_edit' || item.kind === 'seo_fix'
 
   const reviewLink = async action => {
     setLinking(action)
@@ -864,11 +946,26 @@ function DeskDetail({ itemId, siteRow, go }) {
         invalidate()
       } else setLinkResult({ kind: 'refused', message: (res && res.message) || 'The route gave no link.' })
     } catch (error) {
-      const why = error.body && error.body.error
-      const words = why === 'hard_rule' ? '"Never publish, never send" is on for this site. ' : why === 'publishing_off' ? 'Publishing is off for this site. ' : ''
-      setLinkResult({ kind: 'refused', message: (error.body && error.body.message) || words + error.message })
+      setLinkResult({ kind: 'refused', message: (error.body && error.body.message) || error.message })
     } finally {
       setLinking(null)
+    }
+  }
+  const act = async action => {
+    setBusy(action)
+    setProblem(null)
+    setActResult(null)
+    try {
+      const body = action === 'schedule' ? { date: when } : {}
+      const res = await rest('/desk/' + enc(item.id) + '/' + action, { method: 'POST', body })
+      if (!res || res.ok === false) setActResult({ ok: false, message: (res && res.message) || 'WordPress did not take it.' })
+      else setActResult({ ok: true, message: readBack(action, res) })
+      invalidate()
+    } catch (error) {
+      const b = error.body || {}
+      setActResult({ ok: false, message: b.message || error.message, level: /^level_/.test(String(b.error || '')), link: typeof b.review_link === 'string' ? b.review_link : (b.review_link && b.review_link.url) || null })
+    } finally {
+      setBusy(null)
     }
   }
   const markReviewed = async () => {
@@ -905,13 +1002,23 @@ function DeskDetail({ itemId, siteRow, go }) {
   }
 
   let primary
-  if (pub.can_link && open) {
-    const action = item.kind === 'staged_edit' ? 'apply' : pub.setting === 'schedule' ? 'schedule' : 'publish'
-    const label = { apply: 'Apply…', schedule: 'Schedule…', publish: 'Publish…' }[action]
-    primary = el(Btn, { kind: 'primary', onClick: () => reviewLink(action), disabled: Boolean(linking), test: 'review-link', title: 'Opens the review screen in wp-admin' }, linking ? 'Opening…' : label)
+  if (canPublish && open) {
+    primary = staged
+      ? el(Btn, { kind: 'primary', onClick: () => act('apply'), disabled: Boolean(busy), test: 'apply' }, busy === 'apply' ? 'Applying…' : 'Apply to the live ' + (item.wp_type || 'post'))
+      : el(Btn, { kind: 'primary', onClick: () => act('publish'), disabled: Boolean(busy), test: 'publish' }, busy === 'publish' ? 'Publishing…' : 'Publish now')
+  } else if (pub.can_link && open) {
+    const action = staged ? 'apply' : 'publish'
+    primary = el(Btn, { kind: 'primary', onClick: () => reviewLink(action), disabled: Boolean(linking), test: 'review-link', title: 'Opens the review screen in wp-admin', ext: true }, linking ? 'Opening…' : 'Review in WordPress')
   } else {
-    primary = el(Btn, { kind: 'primary', onClick: () => openExternal(edit), disabled: !edit, test: 'open-editor', ext: true }, 'Open in WordPress to publish')
+    primary = el(Btn, { kind: 'primary', onClick: () => openExternal(edit), disabled: !edit, test: 'open-editor', ext: true }, 'Open in WordPress')
   }
+  const siteLabel = siteRow ? siteRow.label : item.site
+  const access = siteRow ? accessOf(siteRow) : null
+  const pubWhy = !open ? '' : canPublish
+    ? (staged ? 'Apply copies the staged change onto the live ' + (item.wp_type || 'post') + ' and removes the copy.' : 'This site\'s level is Publish: your click publishes at once.')
+    : access && access.act === 'confirm' ? 'Confirm this site\'s access in Connections first.'
+      : siteRow && siteRow.level && (siteRow.effective === 'lowered' ? siteRow.level_in_force : siteRow.level) !== 'publish' ? 'This site\'s Hermes user cannot publish. Your own login publishes in WordPress.'
+        : pub.why || ''
 
   return el('div', { className: 'wpb-panel wpb-detail', 'data-test': 'detail', 'data-item': item.id },
     el('div', {},
@@ -953,20 +1060,21 @@ function DeskDetail({ itemId, siteRow, go }) {
       item.notes.map((n, i) => el('div', { key: i, className: 'wpb-small', style: { marginTop: 4 } }, el('span', { className: 'wpb-muted' }, (n.by === 'hermes' ? 'Hermes' : 'You') + ', ' + ago(n.at) + ': '), n.text))) : null,
     el('div', { className: 'wpb-pubbox', 'data-test': 'pubbox' },
       el('div', { className: 'wpb-pubrow' },
-        el('b', { className: 'wpb-small' }, 'Publishing on ' + (siteRow ? siteRow.label : item.site)),
-        el(SwitchDisplay, { on: pub.rule, label: 'Hard rule: never publish, never send (' + (pub.rule ? 'on' : 'off') + ')', onClick: () => go({ view: 'settings', site: item.site }), test: 'rule-switch' })),
-      el('div', { className: 'wpb-pubrow' },
-        el(Seg, { label: 'Publishing', value: pub.setting, options: [
-          { id: 'off', label: 'Off: publish in WordPress', disabled: pub.setting !== 'off' },
-          { id: 'confirm', label: 'Publish after confirm', disabled: pub.rule || pub.setting !== 'confirm' },
-          { id: 'schedule', label: 'Schedule', disabled: pub.rule || pub.setting !== 'schedule' }
-        ] }),
-        el('button', { className: 'wpb-link wpb-xs', onClick: () => go({ view: 'settings', site: item.site }), type: 'button' }, 'Change in Settings')),
-      pub.why ? el('span', { className: 'wpb-xs wpb-muted' }, pub.why) : null,
+        el('b', { className: 'wpb-small' }, 'Publishing on ' + siteLabel),
+        access ? el(Badge, { tone: access.tone }, 'Access: ' + access.text) : null),
+      pubWhy ? el('span', { className: 'wpb-xs wpb-muted', 'data-test': 'pub-why' }, pubWhy) : null,
       el('div', { className: 'wpb-actions' },
         primary,
         el(Btn, { onClick: () => setAsking(!asking), disabled: busy === 'changes', test: 'ask-changes' }, 'Ask for changes'),
         el(Btn, { onClick: markReviewed, disabled: busy === 'review' || item.state === 'reviewed', test: 'mark-reviewed' }, item.state === 'reviewed' ? 'Reviewed ✓' : busy === 'review' ? 'Saving…' : 'Mark reviewed')),
+      canPublish && open && !staged ? el('div', { className: 'wpb-publine', 'data-test': 'schedule-box' },
+        el('label', { className: 'wpb-xs wpb-muted', htmlFor: 'wpb-when-' + item.id }, 'Or schedule for'),
+        el('input', { id: 'wpb-when-' + item.id, className: 'wpb-input', type: 'datetime-local', value: when, onChange: e => setWhen(e.target.value), 'data-test': 'schedule-date' }),
+        el(Btn, { onClick: () => act('schedule'), disabled: Boolean(busy) || !when, test: 'schedule' }, busy === 'schedule' ? 'Scheduling…' : 'Schedule'),
+        el('span', { className: 'wpb-xs wpb-muted' }, 'in the site\'s own time zone')) : null,
+      actResult ? el('div', { className: cx('wpb-notice', actResult.ok ? 'wpb-info' : actResult.level ? '' : 'wpb-bad'), 'data-test': actResult.ok ? 'act-done' : 'act-refused' },
+        el('span', {}, actResult.message),
+        !actResult.ok && (actResult.link || edit) ? el('div', {}, el(Btn, { onClick: () => (actResult.link ? openExternal(actResult.link) : reviewLink(staged ? 'apply' : 'publish')), test: 'act-review-link', ext: true }, 'Review in WordPress')) : null) : null,
       asking ? el('div', { className: 'wpb-stack', style: { gap: 6 }, 'data-test': 'changes-box' },
         el('textarea', { className: 'wpb-textarea', value: note, onChange: e => setNote(e.target.value), placeholder: 'What should Hermes change? It opens in a chat for you to send.', 'aria-label': 'Note for Hermes' }),
         el('div', { className: 'wpb-actions' },
@@ -1201,68 +1309,650 @@ function BuildView({ site, siteRow, sites, go }) {
           el(Btn, { kind: 'primary', onClick: () => draftInChat('Start a GeneratePress build run for @wp:' + site + '. Brief: ') }, 'Start a build run with Hermes')))
 }
 
+// ── Connections: Site N groups in Hermes' settings form (contract §§ 9 to 13) ───────────────────
+
+const PAIRING_ONLY = ['no_user', 'no_password', 'host_changed', 'group_empty']
+const CHECK_STATES = ['new', 'password_changed']
+const SETTLED = ['confirmed', 'lowered', 'checking']
+
+// Opening the settings form unmounts this page, so nothing about a connection lives in component
+// state. What the page needs across a remount: which (group, password fingerprint, address, user) it
+// already checked, in ctx.storage per Desktop (a failed check keeps the group `new`; this stops a
+// remount from checking it again), and the checks in flight and the last Remove, in a module atom
+// (the module outlives the page, so an answer that lands while the settings are open still counts).
+const CHECKED_KEY = 'checked'
+const LIVE_KEY = 'live'
+const $conn = atom({ checked: {}, live: {}, running: {}, errors: {}, removed: [] })
+
+function loadChecked(ctx) {
+  try {
+    const saved = ctx && ctx.storage ? ctx.storage.get(CHECKED_KEY, {}) : {}
+    const live = ctx && ctx.storage ? ctx.storage.get(LIVE_KEY, {}) : {}
+    $conn.set({ ...$conn.get(), checked: saved && typeof saved === 'object' ? saved : {}, live: live && typeof live === 'object' ? live : {} })
+  } catch {
+    /* no storage: the module atom alone remembers checks for this Desktop session */
+  }
+}
+
+const patchConn = patch => $conn.set({ ...$conn.get(), ...patch })
+const groupKey = (profile, n) => (profile || '-') + ':' + n
+const checkKey = g => [g.fp || '', g.url || '', g.user || ''].join('|')
+const useConn = () => useValue($conn)
+
+function settingsHref(profile) {
+  return SETTINGS_HREF + (profile ? '&profile=' + enc(profile) : '')
+}
+
+function useSettingsHref() {
+  const profile = useProfile()
+  const q = useGroups()
+  return (q.data && q.data.settings_href) || settingsHref(profile)
+}
+
+// A group the page should check now: its address, user and password are there, and either nothing
+// proved this password yet (new, password_changed) or a paired group has no check on file (a 0.1.0
+// migration). Once per (group, fingerprint, address, user).
+function wantsCheck(g, done) {
+  if (!g || !g.url || g.error || !g.user || !g.set) return false
+  if (CHECK_STATES.includes(g.state) || (g.state === 'paired' && !g.check)) return done !== checkKey(g)
+  return false
+}
+
+// /overview reads the role live from WordPress; the stored check in /groups changes only on a check or
+// Confirm. A paired group whose live state is stopped or lowered while its stored check says otherwise
+// is checked again, once per (group, fingerprint, address, user, live state): the check brings the new
+// level and caps_fp, so the card can say so and Confirm works. The card shows the live state meanwhile.
+const LIVE_STATES = ['stopped', 'lowered']
+const liveKey = (g, eff) => checkKey(g) + '|' + eff
+
+function liveState(g, row) {
+  const eff = row && row.effective
+  if (!LIVE_STATES.includes(eff) || g.error || g.state !== 'paired') return null
+  return g.check && g.check.state === eff ? null : eff
+}
+
+function wantsLive(g, row, done) {
+  const eff = liveState(g, row)
+  return Boolean(eff && g.url && g.user && g.set && done !== liveKey(g, eff))
+}
+
+const rowOf = (rows, g) => (rows || []).find(r => r.id === g.site_id) || null
+
+function remember(key, map) {
+  try {
+    if (pluginCtx && pluginCtx.storage) pluginCtx.storage.set(key, map)
+  } catch {
+    /* kept in the atom only */
+  }
+}
+
+async function runCheck(profile, g, after, liveEff) {
+  const k = groupKey(profile, g.n)
+  if ($conn.get().running[k]) return
+  patchConn({ running: { ...$conn.get().running, [k]: true } })
+  let error = null
+  try {
+    const res = await rest('/sites/check', { method: 'POST', body: { group: g.n }, timeoutMs: 60000 })
+    if (!res || (res.ok === false && !res.state)) error = (res && res.message) || 'The check gave no answer.'
+  } catch (e) {
+    error = e.message
+  }
+  const now = $conn.get()
+  const checked = { ...now.checked, [k]: checkKey(g) }
+  remember(CHECKED_KEY, checked)
+  const live = liveEff ? { ...now.live, [k]: liveKey(g, liveEff) } : now.live
+  if (liveEff) remember(LIVE_KEY, live)
+  const running = { ...now.running }
+  delete running[k]
+  const errors = { ...now.errors }
+  if (error) errors[k] = error
+  else delete errors[k]
+  patchConn({ checked, live, running, errors })
+  if (after) after()
+}
+
+// Runs from the page body, whatever view is open, so coming back from the settings checks at once.
+function useAutoCheck(q, overview) {
+  const profile = useProfile()
+  const invalidate = useInvalidate()
+  const data = q.data
+  const rows = overview && overview.ok !== false ? overview.sites : null
+  useEffect(() => {
+    if (!data || data.ok === false) return
+    const s = $conn.get()
+    for (const g of data.groups || []) {
+      const k = groupKey(profile, g.n)
+      if (s.running[k]) continue
+      const row = rowOf(rows, g)
+      if (wantsCheck(g, s.checked[k])) runCheck(profile, g, invalidate)
+      else if (wantsLive(g, row, s.live[k])) runCheck(profile, g, invalidate, liveState(g, row))
+    }
+  }, [data, rows, profile])
+}
+
+// What one group shows now, derived from /groups, its /overview row and the atom only.
+function groupShown(g, conn, profile, row) {
+  const k = groupKey(profile, g.n)
+  const same = state => (g.check && g.check.state === state ? g.check : null)
+  const live = liveState(g, row)
+  if (conn.running[k]) return live ? { state: live, live: row, running: true } : { state: 'checking' }
+  if (g.error) return { state: 'bad_address', check: same('bad_address') }
+  if (PAIRING_ONLY.includes(g.state)) return { state: g.state, check: same(g.state) }
+  if (wantsCheck(g, conn.checked[k])) return { state: 'checking' }
+  if (live && wantsLive(g, row, conn.live[k])) return { state: live, live: row, running: true }
+  if (conn.errors[k]) return live ? { state: live, live: row, error: conn.errors[k] } : { state: 'check_failed', error: conn.errors[k] }
+  if (live) return { state: live, live: row }
+  if (g.check) return { state: g.check.state, check: g.check }
+  return { state: 'unchecked' }
+}
+
+const shownGroups = data => ((data && data.groups) || []).filter(g => g.url || g.site_id || g.error)
+
+function needsPerson(data, conn, profile, rows) {
+  const groups = shownGroups(data).filter(g => !SETTLED.includes(groupShown(g, conn, profile, rowOf(rows, g)).state))
+  return groups.length + ((data && data.groups) || []).filter(g => g.migrate).length
+}
+
+const BADGES = {
+  checking: ['Checking', null], needs_confirm: ['Unconfirmed', 'warn'], confirmed: ['Connected', 'good'], lowered: ['Lowered', 'warn'],
+  stopped: ['Stopped', 'bad'], refused: ['Refused', 'bad'], group_empty: ['Half removed', 'warn'], unchecked: ['Not checked', null]
+}
+
+// The sentence for a pairing state when no check is on file yet (the same words as connect.py's STATES).
+function localMessage(state, g) {
+  const n = g.n
+  if (state === 'no_user') return 'Site ' + n + ' has an address but no WordPress user. Fill Site ' + n + ' · WordPress user.'
+  if (state === 'no_password') return 'Site ' + n + ' has no application password yet. Paste it into Site ' + n + ' · application password.'
+  if (state === 'host_changed') return 'Site ' + n + ' now points to ' + (g.host || host_(g.url)) + '; its stored password belongs to another site. Paste the new site\'s password into Site ' + n + '.'
+  if (state === 'group_empty') return 'Site ' + n + ' has no address any more; its site file ' + (g.site_id || '') + ' stays. Finish removing it, or fill Site ' + n + ' again.'
+  if (state === 'bad_address') return 'Site ' + n + ' · address is not a web address (' + (g.error || 'unreadable') + ').'
+  if (state === 'unchecked') return 'Site ' + n + ' is not checked yet.'
+  return ''
+}
+
+// The decision for Remove, in the owner's words: "Page calls host.request('plugins.manage',
+// settings) on his Remove click (public SDK door, same writer as the settings form); if it fails, the
+// page says to empty the two fields by hand". No route writes Hermes' settings; this is the only write.
+async function writeGroup(profile, n, url, user) {
+  if (typeof host.request !== 'function') return { ok: false, why: 'This Desktop cannot write plugin settings from a page.' }
+  try {
+    const res = await host.request('plugins.manage', {
+      action: 'settings',
+      key: ID,
+      values: { ['site' + n + '_url']: url, ['site' + n + '_user']: user },
+      profile: profile || undefined
+    })
+    if (res && (res.ok === false || res.error)) return { ok: false, why: String(res.message || res.error) }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, why: e && e.message ? e.message : String(e) }
+  }
+}
+
+function migratedWords(m) {
+  if (!m || typeof m !== 'object') return ''
+  const parts = []
+  if (m.never_publish_never_send !== undefined && m.never_publish_never_send !== null) parts.push('"never publish, never send" ' + (m.never_publish_never_send ? 'on' : 'off'))
+  if (m.publishing) parts.push('publishing ' + m.publishing)
+  if (m.agent_writes) parts.push('agent writes ' + m.agent_writes)
+  return parts.length ? 'This level replaces the site\'s old settings (' + parts.join(', ') + ').' : ''
+}
+
+function Limit() {
+  return el('p', { className: 'wpb-limit', 'data-test': 'limit-line' }, el(Codicon, { name: 'shield', size: '0.8rem' }), el('span', {}, LIMIT_LINE))
+}
+
+function ConfirmBlock({ g, check, again, after, recheck, extra }) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState(null)
+  const site = check.site_id || g.site_id
+  const confirm = async () => {
+    setBusy(true)
+    setNote(null)
+    try {
+      const res = await rest('/sites/' + enc(site) + '/confirm', { method: 'POST', body: { level: check.level, caps_fp: check.caps_fp } })
+      if (res && res.ok === false && !res.state) setNote({ bad: true, text: res.message || 'Not confirmed.' })
+    } catch (e) {
+      if (e.status === 409 && e.body && e.body.error === 'changed') setNote({ text: e.body.message || 'WordPress changed what this user may do. Read the new line and confirm that one.' })
+      else setNote({ bad: true, text: (e.body && e.body.message) || e.message })
+    } finally {
+      setBusy(false)
+      after()
+    }
+  }
+  const migrated = migratedWords(check.migrated)
+  return el('div', { className: 'wpb-stack', style: { gap: 9 }, 'data-test': 'confirm-card' },
+    note ? el('div', { className: cx('wpb-notice', note.bad && 'wpb-bad'), 'data-test': note.bad ? 'confirm-error' : 'confirm-changed' }, note.text) : null,
+    again
+      ? el('p', { className: 'wpb-gmsg' }, check.message)
+      : el('p', { className: 'wpb-confirm' }, 'Connected as ', el('b', {}, check.username || 'hermes'), ' at ', check.host || g.host, '. WordPress lets this user ', el('b', {}, check.level_words || LEVEL_NAME[check.level] || check.level), '. Hermes will do exactly that.'),
+    migrated ? el('p', { className: 'wpb-xs wpb-muted' }, migrated) : null,
+    again && check.level ? el('p', { className: 'wpb-xs wpb-muted' }, 'Confirm the new level, or narrow the role of ', el('b', {}, check.username || 'hermes'), ' in WordPress and check again.') : null,
+    again && !check.level ? el('p', { className: 'wpb-xs wpb-muted', 'data-test': 'narrow-role' }, 'Narrow the role of ', el('b', {}, check.username || 'hermes'), ' in WordPress, then check again.') : null,
+    el('div', { className: 'wpb-actions' },
+      check.level && check.caps_fp && site
+        ? el(Btn, { kind: 'primary', onClick: confirm, disabled: busy, test: 'confirm' }, busy ? 'Confirming…' : again ? 'Confirm again' : 'Confirm')
+        : null,
+      again && recheck ? el(Btn, { onClick: recheck, test: 'check-again' }, 'Check again') : null,
+      extra || null),
+    el(Limit, {}))
+}
+
+function RemovePanel({ g, siteId, label, profile, href, after, close }) {
+  const keyed = g.state === 'paired' || Boolean(g.check && g.check.username)
+  const [revoke, setRevoke] = useState(keyed)
+  const [steps, setSteps] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [manual, setManual] = useState(false)
+  const n = g.n
+  const put = (key, status, text) => setSteps(prev => {
+    const at = prev.findIndex(s => s.key === key)
+    const next = [...prev]
+    if (at >= 0) next[at] = { key, status, text }
+    else next.push({ key, status, text })
+    return next
+  })
+  const done = list => {
+    patchConn({ removed: [{ n, label, steps: list, at: Date.now() }, ...$conn.get().removed].slice(0, 3) })
+  }
+  const run = async () => {
+    setBusy(true)
+    setManual(false)
+    const log_ = []
+    const say = (key, status, text) => {
+      put(key, status, text)
+      const at = log_.findIndex(s => s.key === key)
+      if (at >= 0) log_[at] = { key, status, text }
+      else log_.push({ key, status, text })
+    }
+    // 1. revoke at WordPress (optional): what actually ends the password
+    if (revoke) {
+      say('revoke', 'run', 'Revoking the password in WordPress.')
+      try {
+        const r = await rest('/sites/' + enc(siteId) + '/revoke', { method: 'POST', body: {} })
+        say('revoke', r && r.revoked ? 'ok' : 'fail', (r && r.message) || (r && r.revoked ? 'Revoked in WordPress.' : 'WordPress did not revoke it.'))
+      } catch (e) {
+        const missing = e.status === 404 && !(e.body && e.body.message && e.body.error !== 'not_found')
+        say('revoke', 'fail', missing ? 'This WPBrücke cannot revoke yet. In WordPress: Users, hermes, Application Passwords, Revoke.' : (e.body && e.body.message) || e.message)
+      }
+    }
+    // 2. empty the group through Desktop's own settings door
+    say('empty', 'run', 'Emptying Site ' + n + ' · address and Site ' + n + ' · WordPress user.')
+    const wrote = await writeGroup(profile, n, '', '')
+    if (!wrote.ok) {
+      say('empty', 'fail', 'Open the settings and empty Site ' + n + ' · address and Site ' + n + ' · WordPress user.')
+      setManual(true)
+      setBusy(false)
+      after()
+      return
+    }
+    say('empty', 'ok', 'Site ' + n + ' is empty. Its password stays stored but is never sent.')
+    // 3. delete the site file once /groups shows the group without an address
+    say('delete', 'run', 'Removing the site file.')
+    let now = null
+    try {
+      const fresh = await rest('/groups')
+      now = ((fresh && fresh.groups) || []).find(x => x.n === n) || null
+    } catch {
+      now = null
+    }
+    if (!now || now.url) {
+      say('delete', 'fail', 'Site ' + n + ' still shows an address, so the site file stays. Finish removing once it is empty.')
+    } else {
+      try {
+        await rest('/sites/' + enc(siteId), { method: 'DELETE' })
+        say('delete', 'ok', 'Site file removed. Its saved versions stay in the history.')
+        done(log_)
+      } catch (e) {
+        say('delete', 'fail', (e.body && e.body.message) || e.message)
+      }
+    }
+    setBusy(false)
+    after()
+  }
+  return el('div', { className: 'wpb-stack', style: { gap: 8 }, 'data-test': 'remove-panel' },
+    el('b', { className: 'wpb-small' }, 'Remove ' + label + ' from Hermes'),
+    keyed ? el('label', { className: 'wpb-check-box' },
+      el('input', { type: 'checkbox', checked: revoke, onChange: e => setRevoke(e.target.checked), disabled: busy, 'data-test': 'revoke-box' }),
+      el('span', {}, 'Revoke the password in WordPress')) : null,
+    el('span', { className: 'wpb-xs wpb-muted' }, 'Hermes keeps the site file\'s saved versions. Nothing else changes on WordPress.'),
+    steps.length ? el('div', { className: 'wpb-steps', 'data-test': 'remove-steps' },
+      steps.map(s => el('div', { key: s.key, 'data-step': s.key, 'data-status': s.status },
+        el('span', { className: 'wpb-mk wpb-mk-' + s.status }, { run: 'now', ok: 'done', fail: 'stop' }[s.status]), el('span', {}, s.text)))) : null,
+    el('div', { className: 'wpb-actions' },
+      el(Btn, { kind: 'primary', onClick: run, disabled: busy, test: 'remove-run' }, busy ? 'Removing…' : steps.length ? 'Try again' : 'Remove'),
+      manual ? el(Btn, { onClick: () => host.navigate(href), test: 'remove-settings' }, 'Open the settings') : null,
+      el(Btn, { kind: 'ghost', onClick: close, disabled: busy }, 'Cancel')))
+}
+
+function GroupCard({ g, row, profile, href }) {
+  const conn = useConn()
+  const invalidate = useInvalidate()
+  const [removing, setRemoving] = useState(false)
+  const [finishing, setFinishing] = useState(null)
+  const shown = groupShown(g, conn, profile, row)
+  const { state, check } = shown
+  const [word, tone] = BADGES[state] || ['Needs you', 'warn']
+  const named = g.host || host_(g.url) || (row && row.label) || g.site_id || ''
+  const label = named || 'Site ' + g.n
+  const siteId = (check && check.site_id) || g.site_id
+  const recheck = () => runCheck(profile, g, invalidate)
+  const finishRemove = async () => {
+    setFinishing({ busy: true })
+    try {
+      await rest('/sites/' + enc(siteId), { method: 'DELETE' })
+      patchConn({ removed: [{ n: g.n, label, steps: [{ key: 'delete', status: 'ok', text: 'Site file removed. Its saved versions stay in the history.' }], at: Date.now() }, ...$conn.get().removed].slice(0, 3) })
+      setFinishing(null)
+    } catch (e) {
+      setFinishing({ error: (e.body && e.body.message) || e.message })
+    }
+    invalidate()
+  }
+  const settingsBtn = (text, kind) => el(Btn, { key: 'settings', kind: kind || 'primary', onClick: () => host.navigate((check && check.next && check.next.href) || href), test: 'open-settings' }, text || 'Open the settings')
+  const againBtn = kind => el(Btn, { key: 'again', kind: kind || 'ghost', onClick: recheck, test: 'check-again' }, 'Check again')
+  const removeBtn = siteId && !removing ? el(Btn, { key: 'remove', kind: 'ghost', onClick: () => setRemoving(true), test: 'remove' }, 'Remove') : null
+
+  let body
+  let actions = []
+  if (state === 'checking') {
+    body = el('p', { className: 'wpb-gmsg wpb-muted', 'data-test': 'checking' }, 'Checking ' + label + ' with the user and password in Site ' + g.n + '.')
+  } else if (shown.live) {
+    // The live state from /overview while the stored check still says otherwise (see liveState).
+    const r = shown.live
+    const who = (g.check && g.check.username) || g.user || 'hermes'
+    const said = state === 'stopped'
+      ? 'WPBrücke stopped ' + label + ': ' + (r.stop_reason || 'the user rights changed') + '.'
+      : 'WordPress now lets ' + who + ' only ' + (r.level_words || 'less than you confirmed') + ' at ' + label + '; Hermes follows the narrower role.'
+    const after = shown.running
+      ? el('p', { key: 'run', className: 'wpb-xs wpb-muted', 'data-test': 'live-checking' }, 'Checking ' + label + ' again for what WordPress allows now.')
+      : shown.error
+        ? el('p', { key: 'err', className: 'wpb-xs wpb-muted' }, 'The check did not finish: ' + shown.error)
+        : g.check && g.check.message ? el('p', { key: 'last', className: 'wpb-xs wpb-muted' }, 'Last check: ' + g.check.message) : null
+    body = [el('p', { key: 'live', className: 'wpb-gmsg', 'data-test': 'live-state' }, said), after]
+    if (!shown.running) actions = [againBtn(state === 'stopped' ? 'primary' : 'ghost')]
+  } else if (state === 'needs_confirm') {
+    body = el(ConfirmBlock, { key: 'confirm-' + g.n, g, check, after: invalidate, extra: removeBtn })
+  } else if (state === 'stopped') {
+    body = el(ConfirmBlock, { key: 'confirm-' + g.n, g, check, again: true, after: invalidate, recheck, extra: removeBtn })
+  } else if (state === 'group_empty') {
+    body = el('p', { className: 'wpb-gmsg' }, (check && check.message) || localMessage(state, g))
+    actions = [
+      el(Btn, { key: 'finish', kind: 'primary', onClick: finishRemove, disabled: Boolean(finishing && finishing.busy), test: 'finish-remove' }, 'Finish removing'),
+      settingsBtn('Fill Site ' + g.n + ' again', 'default')
+    ]
+  } else if (state === 'check_failed') {
+    body = el('p', { className: 'wpb-gmsg' }, 'The check did not finish: ' + shown.error)
+    actions = [againBtn('primary')]
+  } else if (check) {
+    body = el('p', { className: 'wpb-gmsg' }, check.message)
+    // The refusal says "one of the roles above", so the roles come first.
+    if (state === 'refused') body = [el('p', { key: 'roles', className: 'wpb-xs wpb-muted' }, 'Roles that work: WPBrücke reader, Contributor, WPBrücke drafter, Author, Editor.'), el('p', { key: 'msg', className: 'wpb-gmsg' }, check.message)]
+    const next = check.next || {}
+    if (next.action === 'settings') actions = [settingsBtn(next.label), againBtn()]
+    else if (next.action === 'check') actions = [againBtn('primary')]
+    else if (next.action === 'open' && next.href) actions = [el(Btn, { key: 'open', kind: 'primary', onClick: () => openExternal(next.href), ext: true, test: 'open-next' }, next.label || 'Open')]
+    else if (state === 'confirmed' || state === 'lowered') actions = [againBtn()]
+  } else {
+    body = el('p', { className: 'wpb-gmsg' }, localMessage(state, g))
+    actions = state === 'unchecked' ? [againBtn('primary')] : [settingsBtn()]
+  }
+  if (removeBtn && !shown.running && (shown.live || !['group_empty', 'checking', 'needs_confirm', 'stopped'].includes(state))) actions.push(removeBtn)
+  const cardTone = state === 'needs_confirm' ? 'confirm' : tone === 'bad' ? 'bad' : ''
+  return el('article', { className: 'wpb-panel wpb-gcard', 'data-test': 'group', 'data-group': g.n, 'data-state': state, 'data-tone': cardTone, 'data-checking': shown.running ? '1' : undefined },
+    el('div', { className: 'wpb-ghead' },
+      el('span', { className: 'wpb-gn' }, 'Site ' + g.n),
+      named ? el('b', {}, named) : null,
+      g.user ? el('span', { className: 'wpb-xs wpb-muted' }, 'as ' + g.user) : null,
+      el('span', { className: 'wpb-sp' }),
+      el(Badge, { tone }, state === 'checking' || shown.running ? [el(Codicon, { key: 'i', name: 'loading', spinning: true, size: '0.7rem' }), word] : word)),
+    body,
+    finishing && finishing.error ? el('div', { className: 'wpb-notice wpb-bad' }, finishing.error) : null,
+    actions.length ? el('div', { className: 'wpb-actions' }, actions) : null,
+    removing && siteId ? el(RemovePanel, { g, siteId, label, profile, href, after: invalidate, close: () => setRemoving(false) }) : null)
+}
+
+function MigrateCard({ g, profile, href }) {
+  const invalidate = useInvalidate()
+  const [state, setState] = useState(null)
+  const m = g.migrate || {}
+  const fill = async () => {
+    setState({ busy: true })
+    const wrote = await writeGroup(profile, g.n, m.url || '', m.login || '')
+    setState(wrote.ok ? null : { failed: true })
+    invalidate()
+  }
+  return el('article', { className: 'wpb-panel wpb-gcard', 'data-test': 'migrate', 'data-group': g.n },
+    el('div', { className: 'wpb-ghead' }, el('span', { className: 'wpb-gn' }, 'Site ' + g.n), el('b', {}, host_(m.url)), el('span', { className: 'wpb-sp' }), el(Badge, { tone: 'warn' }, 'From 0.1')),
+    el('p', { className: 'wpb-gmsg' }, 'WPBrücke 0.1 connected ' + host_(m.url) + ' as ' + (m.login || 'its user') + '. Put both into Site ' + g.n + ' so it connects again; the password is already there.'),
+    state && state.failed ? el('div', { className: 'wpb-notice', 'data-test': 'migrate-failed' },
+      el('span', {}, 'Open the settings and fill Site ' + g.n + ' · address with ', el('code', { className: 'wpb-code' }, m.url || ''), ' and Site ' + g.n + ' · WordPress user with ', el('code', { className: 'wpb-code' }, m.login || ''), '.')) : null,
+    el('div', { className: 'wpb-actions' },
+      el(Btn, { kind: 'primary', onClick: fill, disabled: Boolean(state && state.busy), test: 'migrate-fill' }, 'Fill Site ' + g.n),
+      state && state.failed ? el(Btn, { onClick: () => host.navigate(href), test: 'open-settings' }, 'Open the settings') : null))
+}
+
+const LEVEL_ROWS = [
+  ['Read', 'WPBrücke reader (needs the WPBrücke connector)'],
+  ['Drafts', 'Contributor (no images) or WPBrücke drafter (images, needs the connector)'],
+  ['Publish', 'Author (its own posts) or Editor (all posts and pages)']
+]
+
+function Guide({ data, href, open, toggle, first }) {
+  const n = data.free
+  if (n === null || n === undefined) {
+    return el('div', { className: 'wpb-panel wpb-guide', 'data-test': 'guide-full' },
+      el('h2', { className: 'wpb-h2' }, 'Connect a site'),
+      el('p', { className: 'wpb-muted' }, (data.used || 0) >= 16 ? 'All 16 site groups are in use. Remove a site to free one.' : 'No free site group right now. Bring back the 0.1 sites above first.'))
+  }
+  if (!open) {
+    return el('div', { className: 'wpb-panel wpb-guide', 'data-test': 'guide-closed', style: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' } },
+      el('span', {}, el('b', {}, 'Connect another site'), el('span', { className: 'wpb-muted' }, ' in Site ' + n + '.')),
+      el(Btn, { onClick: toggle, test: 'guide-open', icon: 'add' }, 'Connect a site'))
+  }
+  return el('section', { className: 'wpb-panel wpb-guide', 'data-test': 'guide' },
+    el('div', { className: 'wpb-ghead' },
+      el('h2', { className: 'wpb-h2' }, 'Connect a site'),
+      el(Badge, { tone: null }, 'Use Site ' + n),
+      el('span', { className: 'wpb-sp' }),
+      first ? null : el(Btn, { kind: 'ghost', onClick: toggle, test: 'guide-close' }, 'Close')),
+    el('p', { className: 'wpb-muted', style: { maxWidth: '72ch' } }, 'Hermes works as a WordPress user you create for it. Its role decides what Hermes may do.'),
+    el('ol', {},
+      el('li', {}, el('div', {},
+        el('span', {}, 'In WordPress, Users, Add New: create a user named ', el('b', {}, 'hermes'), ' with an email of its own and the role for the level you want.'),
+        el('dl', { className: 'wpb-levels', 'data-test': 'levels' },
+          LEVEL_ROWS.map(([lvl, role]) => [el('dt', { key: lvl + 't' }, lvl), el('dd', { key: lvl + 'd' }, role)]),
+          el('dt', { className: 'wpb-no' }, 'Administrator'), el('dd', {}, 'Refused: too wide for Hermes.')))),
+      el('li', {}, el('div', {},
+        el('span', {}, 'Open that user\'s profile. Under Application Passwords, add one named ', el('b', {}, 'Hermes'), ' and copy it.'))),
+      el('li', {}, el('div', {},
+        el('span', {}, 'Open the settings and fill ', el('b', {}, 'Site ' + n + ' · address'), ', ', el('b', {}, 'Site ' + n + ' · WordPress user'), ' and ', el('b', {}, 'Site ' + n + ' · application password'), '. Save, then come back here.'),
+        el('div', { className: 'wpb-actions' }, el(Btn, { kind: 'primary', onClick: () => host.navigate(href), test: 'guide-settings' }, 'Open the settings'))))),
+    el('p', { className: 'wpb-xs wpb-muted' }, 'Back here, WPBrücke checks the connection and asks you to confirm what Hermes may do.'))
+}
+
+function PublicSites({ rows, go }) {
+  const invalidate = useInvalidate()
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const add = async () => {
+    setBusy('add')
+    setMsg(null)
+    try {
+      const res = await rest('/public-sites', { method: 'POST', body: { url: url.trim() } })
+      if (!res || res.ok === false) setMsg({ bad: true, text: (res && res.message) || 'Not added.' })
+      else {
+        setMsg({ text: 'Added ' + host_((res.site && res.site.url) || url) + '.' })
+        setUrl('')
+      }
+    } catch (e) {
+      setMsg({ bad: true, text: (e.body && e.body.message) || e.message })
+    } finally {
+      setBusy(null)
+      invalidate()
+    }
+  }
+  const remove = async id => {
+    setBusy(id)
+    setMsg(null)
+    try {
+      await rest('/sites/' + enc(id), { method: 'DELETE' })
+      setMsg({ text: 'Removed ' + id + '. Its saved versions stay in the history.' })
+    } catch (e) {
+      setMsg({ bad: true, text: (e.body && e.body.message) || e.message })
+    } finally {
+      setBusy(null)
+      invalidate()
+    }
+  }
+  return el('aside', { className: 'wpb-panel wpb-side', 'data-test': 'public-sites' },
+    el('h2', { className: 'wpb-h2' }, 'Public sites', el('span', { className: 'wpb-xs wpb-muted wpb-mono' }, String(rows.length))),
+    el('div', { className: 'wpb-side-note', style: { borderTop: 0, paddingTop: 0 } }, 'No password: Hermes reads what the public sees, for the fleet and SEO.'),
+    rows.map(r => el('div', { key: r.id, className: 'wpb-row', 'data-site': r.id },
+      el('span', {}, el('b', {}, host_(r.url)), r.label && r.label !== host_(r.url) ? el('span', { className: 'wpb-xs wpb-muted' }, ' ' + r.label) : null),
+      el('span', { className: 'wpb-actions' },
+        el(Btn, { kind: 'ghost', onClick: () => go({ view: 'site', site: r.id }) }, 'Open'),
+        el(Btn, { kind: 'ghost', onClick: () => remove(r.id), disabled: busy === r.id, test: 'public-remove' }, 'Remove')))),
+    el('div', { className: 'wpb-side-note wpb-field' },
+      el('label', { htmlFor: 'wpb-public-url' }, 'Add a public site'),
+      el('div', { className: 'wpb-inline' },
+        el('input', { id: 'wpb-public-url', className: 'wpb-input', type: 'url', value: url, onChange: e => setUrl(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && url.trim()) add() }, placeholder: 'https://example.org', 'data-test': 'public-url' }),
+        el(Btn, { onClick: add, disabled: busy === 'add' || !url.trim(), test: 'public-add' }, busy === 'add' ? 'Adding…' : 'Add')),
+      msg ? el('span', { className: cx('wpb-xs', msg.bad ? '' : 'wpb-muted'), style: msg.bad ? { color: 'var(--wpb-bad)' } : null, 'data-test': 'public-msg' }, msg.text) : null))
+}
+
+function Removed() {
+  const conn = useConn()
+  if (!conn.removed.length) return null
+  return el('div', { className: 'wpb-stack', style: { gap: 8 } },
+    conn.removed.map(r => el('div', { key: r.at, className: 'wpb-notice wpb-info', 'data-test': 'removed' },
+      el('span', {}, el('b', {}, 'Removed ' + r.label + '. '), r.steps.map(s => s.text).join(' ')),
+      el('div', {}, el(Btn, { kind: 'ghost', onClick: () => patchConn({ removed: $conn.get().removed.filter(x => x.at !== r.at) }) }, 'Dismiss')))))
+}
+
+function ConnectView({ q, overview, go }) {
+  const profile = useProfile()
+  const [guideOpen, setGuideOpen] = useState(null)
+  const head = el('div', { className: 'wpb-lede' },
+    el('h2', { className: 'wpb-h2' }, 'Connections'),
+    el('p', {}, 'Each site is a WordPress user you create for Hermes. Its role decides what Hermes may do there.'))
+  const guard = guardData(q, 'Connections')
+  if (guard) return el('div', { 'data-test': 'connect' }, head, guard)
+  const data = q.data
+  const href = data.settings_href || settingsHref(profile)
+  const rows = (overview && overview.sites) || []
+  const groups = shownGroups(data)
+  const migrate = (data.groups || []).filter(g => g.migrate)
+  const first = !groups.length && !migrate.length
+  const open = guideOpen === null ? first : guideOpen
+  const publicRows = rows.filter(r => !r.group || typeof r.group !== 'number')
+  return el('div', { 'data-test': 'connect' }, head,
+    el('div', { className: 'wpb-grid2' },
+      el('div', { className: 'wpb-stack' },
+        el(Removed, {}),
+        migrate.map(g => el(MigrateCard, { key: 'm' + g.n, g, profile, href })),
+        groups.map(g => el(GroupCard, { key: g.n, g, row: rows.find(r => r.id === g.site_id), profile, href })),
+        el(Guide, { data, href, open, first, toggle: () => setGuideOpen(!open) })),
+      el(PublicSites, { rows: publicRows, go })))
+}
+
+function ConnectNotice({ q, rows, go }) {
+  const conn = useConn()
+  const profile = useProfile()
+  if (!q.data || q.data.ok === false) return null
+  const n = needsPerson(q.data, conn, profile, rows)
+  if (!n) return null
+  return el('div', { className: 'wpb-notice', 'data-test': 'connect-notice', style: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 } },
+    el('span', {}, n === 1 ? 'One site connection needs you.' : n + ' site connections need you.'),
+    el(Btn, { onClick: () => go({ view: 'connect' }), test: 'connect-open' }, 'Open Connections'))
+}
+
 // ── Settings ─────────────────────────────────────────────────────────────────────────────────────
 
 const GOOD_RIGHTS = ['can draft', 'can upload', 'cannot publish']
 
+// One short value for a site-file field the page shows but does not edit (Hermes edits them in a chat).
+function fieldWords(v) {
+  if (v === null || v === undefined || v === '') return 'not set'
+  if (Array.isArray(v)) return v.length ? v.map(fieldWords).join(', ') : 'none'
+  if (typeof v === 'object') {
+    const parts = Object.entries(v).filter(([, x]) => x !== null && x !== undefined && x !== '' && !(Array.isArray(x) && !x.length))
+    return parts.length ? parts.map(([k, x]) => k.replace(/_/g, ' ') + ': ' + (typeof x === 'object' ? fieldWords(x) : String(x))).join('; ') : 'none'
+  }
+  if (typeof v === 'boolean') return v ? 'on' : 'off'
+  return String(v)
+}
+
 function SettingsView({ site, siteRow, sites, go, compact }) {
   const q = useSite(site)
   const patch = useSitePatch(site)
-  const [confirmOff, setConfirmOff] = useState(false)
+  const href = useSettingsHref()
   const head = compact ? null : el('div', { className: 'wpb-lede' }, el('h2', { className: 'wpb-h2' }, 'Settings for this site'),
-    el('p', {}, 'Every safety rule is a switch with a safe default. Passwords go into Hermes\' own plugin settings form; this page never shows or takes one.'),
+    el('p', {}, 'What Hermes may do here is the WordPress role you confirmed. Passwords stay in Hermes\' own settings form.'),
     el(SitePicker, { sites, value: site, onChange: x => go({ view: 'settings', site: x }) }))
   const guard = guardData(q, 'This site')
   if (guard) return el('div', {}, head, guard)
   const { site: s, facts, rights, not_available: dark, versions, yaml } = q.data
   const f = facts || {}
-  const user = f.user || {}
-  const settingsUrl = q.data.settings_url || SETTINGS_HREF
-  const rule = s.never_publish_never_send !== false
-  const flipRule = () => {
-    if (rule) setConfirmOff(true)
-    else patch.save({ never_publish_never_send: true, publishing: 'off' })
-  }
+  const row = siteRow || {}
+  const access = accessOf(row)
+  const granted = s.access || null
+  // The level in force: a lowered site runs at its narrower live level, not the one confirmed.
+  const level = row.effective === 'lowered' ? row.level_in_force || null : row.level || (granted && granted.level) || null
+  const publishLevel = level === 'publish' && row.effective !== 'stopped' && row.effective !== 'unconfirmed'
+  const autos = Array.isArray(s.automations) ? s.automations : []
+  const setPublish = (id, on) => patch.save({ automations: autos.map(a => (a.id === id ? { ...a, publish: on } : a)) })
   const connector = f.connector
+  const groupN = typeof row.group === 'number' ? row.group : s.key_slot || 0
+  const words = row.level_words || null
+  const detail = [
+    groupN ? 'Site ' + groupN : null,
+    s.username || (f.user && f.user.username) ? 'user ' + (s.username || f.user.username) : null,
+    granted && granted.role ? 'role ' + granted.role : null,
+    granted && granted.confirmed_at ? 'confirmed ' + dayMonth(granted.confirmed_at) : null
+  ].filter(Boolean).join(' · ')
   return el('div', { 'data-test': 'settings' }, head,
     el('div', { className: compact ? 'wpb-stack' : 'wpb-grid2' },
       el('div', { className: 'wpb-panel' },
-        el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Access'), el('span', {}, s.key_slot ? 'Detected from the application password in key slot ' + s.key_slot : 'No key for this site')),
-          el('div', {},
-            el('div', { className: 'wpb-rights', 'data-test': 'rights' },
-              (rights || []).map(r => el(Badge, { key: r, tone: GOOD_RIGHTS.includes(r) ? 'good' : 'warn' }, r)),
-              user.username ? el(Badge, {}, 'user: ' + user.username) : null,
-              !s.key_slot ? el(Badge, { tone: 'warn' }, 'public facts only') : null),
-            el('p', { className: 'wpb-xs wpb-muted', style: { marginTop: 6 } }, 'Recommended: a WordPress user whose role cannot publish, so WordPress itself refuses a publish. An admin password works too; Hermes then asks before every write. ',
-              el('button', { className: 'wpb-link', onClick: () => host.navigate(settingsUrl), type: 'button', 'data-test': 'password-link' }, s.key_slot ? 'Change the password ↗' : 'Add a password ↗')))),
-        el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Never publish, never send'), el('span', {}, 'Hard rule for this site')),
-          el('div', { className: 'wpb-stack', style: { gap: 8 } },
-            el(SwitchDisplay, { on: rule, busy: patch.saving, onClick: flipRule, test: 'rule', label: rule ? 'On: Hermes and this page never publish or send a newsletter' : 'Off: the desk may open the review screen where you publish' }),
-            confirmOff ? el('div', { className: 'wpb-notice' },
-              el('span', {}, 'Turn the hard rule off for ' + (siteRow ? siteRow.label : site) + '? Hermes still cannot publish; the desk then offers a link to the review screen in wp-admin, where your own login publishes.'),
-              el('div', { className: 'wpb-actions' },
-                el(Btn, { kind: 'primary', onClick: () => { setConfirmOff(false); patch.save({ never_publish_never_send: false }) } }, 'Turn it off'),
-                el(Btn, { kind: 'ghost', onClick: () => setConfirmOff(false) }, 'Keep it on'))) : null)),
-        el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Publishing'), el('span', {}, 'What the desk offers')),
+        el('div', { className: 'wpb-set', 'data-test': 'access' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Access'), el('span', {}, groupN ? 'From the WordPress role' : 'No password for this site')),
           el('div', { className: 'wpb-stack', style: { gap: 6 } },
-            el(Seg, { label: 'Publishing', value: s.publishing, test: 'publishing', onChange: v => patch.save({ publishing: v }), options: [
-              { id: 'off', label: 'Off: publish in WordPress' },
-              { id: 'confirm', label: 'Publish after confirm', disabled: rule },
-              { id: 'schedule', label: 'Schedule', disabled: rule }] }),
-            el('span', { className: 'wpb-xs wpb-muted' }, rule ? '"Never publish, never send" is on, so only the WordPress link is offered.' : 'The desk opens the review screen in wp-admin; your own login publishes there. Hermes never publishes.'))),
-        el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Agent writes'), el('span', {}, 'When Hermes asks first')),
-          el(Seg, { label: 'Agent writes', value: s.agent_writes || '', test: 'agent-writes', onChange: v => patch.save({ agent_writes: v }), options: [
-            { id: '', label: 'Plugin default' }, { id: 'auto', label: 'Ask if the key can publish' }, { id: 'always', label: 'Always ask' }] })),
+            el('div', { className: 'wpb-rights' },
+              el(Badge, { tone: access.tone }, access.text),
+              (rights || []).map(r => el(Badge, { key: r, tone: GOOD_RIGHTS.includes(r) ? 'good' : null }, r))),
+            words ? el('span', { className: 'wpb-small', 'data-test': 'level-words' }, 'Hermes may ' + words + '.') : null,
+            row.effective === 'stopped' && row.stop_reason ? el('span', { className: 'wpb-small', style: { color: 'var(--wpb-bad)' }, 'data-test': 'stop-reason' }, 'Stopped: ' + row.stop_reason + '.') : null,
+            detail ? el('span', { className: 'wpb-xs wpb-muted' }, detail) : null,
+            el('div', { className: 'wpb-actions' },
+              access.act === 'confirm' ? el(Btn, { kind: 'primary', onClick: () => go({ view: 'connect' }), test: 'confirm-again' }, row.effective === 'stopped' ? 'Confirm again' : 'Confirm') : null,
+              access.act === 'connect' ? el(Btn, { onClick: () => go({ view: 'connect' }), test: 'connect-site' }, 'Connect with a password') : null,
+              groupN ? el(Btn, { kind: 'ghost', onClick: () => host.navigate(href), test: 'password-link' }, 'Change the password') : null))),
+        el('div', { className: 'wpb-set', 'data-test': 'automations' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Recurring drafts'), el('span', {}, 'Scheduled runs')),
+          el('div', { className: 'wpb-stack', style: { gap: 8 } },
+            autos.length
+              ? autos.map(a => el('div', { key: a.id, className: 'wpb-stack', style: { gap: 3 } },
+                el('span', { className: 'wpb-small' }, el('b', {}, a.id.replace(/-/g, ' ')), el('span', { className: 'wpb-muted' }, ' · ' + cronWords(a.schedule) + (a.enabled === false ? ' · paused' : ''))),
+                publishLevel
+                  ? el(SwitchDisplay, { on: Boolean(a.publish), busy: patch.saving, onClick: () => setPublish(a.id, !a.publish), label: a.publish ? 'Publishes its ' + (a.post_type || 'post') : 'Writes a draft; switch on to publish', test: 'auto-publish' })
+                  : null))
+              : el('span', { className: 'wpb-small wpb-muted' }, 'None yet. Ask Hermes for one in a chat.'),
+            el('span', { className: 'wpb-xs wpb-muted' }, publishLevel ? 'A run publishes only when its switch is on.' : 'Runs write drafts. Publishing from a run needs the Publish level.'))),
         el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Packs'), el('span', {}, 'Optional depth for one theme')),
           el('div', { className: 'wpb-stack', style: { gap: 6 } },
             el(SwitchDisplay, { on: Boolean(s.packs && s.packs.generatepress), busy: patch.saving, onClick: () => patch.save({ packs: { generatepress: !(s.packs && s.packs.generatepress) } }), label: 'GeneratePress pack: build runs, GenerateBlocks pages, colours and fonts', test: 'pack' }))),
         el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Connections'), el('span', {}, 'All optional')),
           el('div', { className: 'wpb-stack wpb-small', style: { gap: 6 } },
             el('span', {}, 'WPBrücke connector ', connector ? el(Badge, { tone: 'good' }, 'v' + connector.version) : el(Badge, { tone: 'warn' }, 'not installed'), ' ',
-              el('span', { className: 'wpb-muted' }, 'signed draft previews, SEO fields, the review screen')),
+              el('span', { className: 'wpb-muted' }, 'reader and drafter roles, signed previews, SEO fields, the review screen')),
             (dark || []).length ? el('div', { className: 'wpb-stack', style: { gap: 4 }, 'data-test': 'not-available' },
               el('span', { className: 'wpb-muted wpb-xs' }, 'Not available with this setup:'),
               dark.map(d => el('span', { key: d.feature, className: 'wpb-xs' }, el('b', {}, d.label), el('span', { className: 'wpb-muted' }, ': ' + d.because)))) : null)),
+        el('div', { className: 'wpb-set', 'data-test': 'site-fields' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Site file'), el('span', {}, 'Hermes changes these in a chat')),
+          el('dl', { className: 'wpb-kv' },
+            el('dt', {}, 'Label'), el('dd', {}, fieldWords(s.label)),
+            el('dt', {}, 'Group'), el('dd', {}, fieldWords(typeof s.group === 'string' ? s.group : '')),
+            el('dt', {}, 'Connect IP'), el('dd', {}, fieldWords(s.connect_ip)),
+            el('dt', {}, 'Proof'), el('dd', {}, fieldWords(s.proof)),
+            el('dt', {}, 'Memory'), el('dd', {}, fieldWords(s.memory)))),
         patch.result ? el('div', { className: 'wpb-set' }, el('span', {}), el('div', { className: cx('wpb-notice', patch.result.ok ? 'wpb-info' : 'wpb-bad'), 'data-test': 'patch-result' }, patch.result.message)) : null),
       el('aside', { className: 'wpb-panel wpb-side' },
         el('h2', { className: 'wpb-h2' }, 'Site file'),
@@ -1275,12 +1965,13 @@ function SettingsView({ site, siteRow, sites, go, compact }) {
 
 // ── the page ─────────────────────────────────────────────────────────────────────────────────────
 
-function Tabs({ view, go, mode, waiting, packHint, route }) {
+function Tabs({ view, go, mode, waiting, packHint, route, connNeeds }) {
   const tabs = [
     ['home', mode === 'many' ? 'Fleet' : 'My site'],
     ['desk', 'Review desk', waiting ? String(waiting) : null],
     ['seo', 'SEO'],
     ['build', 'Build run', packHint],
+    ['connect', 'Connections', connNeeds ? String(connNeeds) : null],
     ['settings', 'Settings']
   ]
   const active = view === 'site' ? 'home' : view
@@ -1304,16 +1995,17 @@ function NoSites() {
   return el(Problem, {
     test: 'no-sites',
     title: 'No WordPress site yet',
-    text: 'Add your site in a chat: its address, the WordPress user and which key slot holds its application password. The password itself goes into the plugin settings form, never into the chat.',
-    actions: [
-      el(Btn, { key: 'a', kind: 'primary', onClick: () => draftInChat('Add my WordPress site to WPBrücke: https://') }, 'Add a site with Hermes'),
-      el(Btn, { key: 's', onClick: () => host.navigate(SETTINGS_HREF) }, 'Open the plugin settings')
-    ]
+    text: 'Connect one on the WordPress page: a WordPress user for Hermes, its application password in the plugin settings, then one Confirm.',
+    actions: [el(Btn, { key: 'c', kind: 'primary', onClick: () => host.navigate(PATH + '?view=connect') }, 'Open Connections')]
   })
 }
 
 function PageBody() {
   const q = useOverview()
+  const gq = useGroups()
+  useAutoCheck(gq, q.data)
+  const conn = useConn()
+  const profile = useProfile()
   const [route, go] = useRoute()
   const data = q.data
   useEffect(() => {
@@ -1322,7 +2014,7 @@ function PageBody() {
   let body
   const guard = guardData(q, 'WPBrücke')
   if (guard) body = guard
-  else if (data.mode === 'none' || !(data.sites || []).length) body = el(NoSites, {})
+  else if (data.mode === 'none' || !(data.sites || []).length) body = el(ConnectView, { q: gq, overview: data, go })
   else {
     const mode = data.mode === 'many' ? 'many' : 'one'
     const sites = data.sites
@@ -1334,12 +2026,15 @@ function PageBody() {
     if (route.view === 'desk') view = el(Desk, { route, go, overview: data, many: mode === 'many' })
     else if (route.view === 'seo') view = el(SeoView, { site, siteRow, sites, go })
     else if (route.view === 'build') view = el(BuildView, { site, siteRow, sites, go })
+    else if (route.view === 'connect') view = el(ConnectView, { q: gq, overview: data, go })
     else if (route.view === 'settings') view = el(SettingsView, { site, siteRow, sites, go })
     else if (mode === 'one' || route.view === 'site') view = el(SiteHome, { row: siteRow, needs: mode === 'one' ? data.needs_you || [] : needsFor(site), go, many: mode === 'many' })
     else view = el(Fleet, { data, go })
     const packHint = 'pack'
+    const connNeeds = gq.data && gq.data.ok !== false ? needsPerson(gq.data, conn, profile, data.sites) : 0
     body = el('div', {},
-      el(Tabs, { view: route.view, go, mode, waiting: data.desk_waiting, packHint, route }),
+      el(Tabs, { view: route.view, go, mode, waiting: data.desk_waiting, packHint, route, connNeeds }),
+      route.view === 'connect' ? null : el(ConnectNotice, { q: gq, rows: data.sites, go }),
       view)
   }
   return el('div', { className: 'wpb wpb-scope', 'data-test': 'wpb-page' },
@@ -1609,6 +2304,7 @@ export default {
   description: 'Your WordPress sites: drafts by Hermes with proof at every width, SEO checks, and a review desk where you sign off.',
   register(ctx) {
     pluginCtx = ctx
+    loadChecked(ctx)
     const removeStyle = installStyle()
     if (typeof ctx.onDispose === 'function') ctx.onDispose(removeStyle)
     ctx.register({ id: 'page', area: ROUTES_AREA, data: { path: PATH }, render: () => jsx(WpbPage, {}) })
@@ -1622,6 +2318,11 @@ export default {
       id: 'open-desk',
       area: PALETTE_AREA,
       data: { id: 'wpbruecke.desk', label: 'WordPress: open review desk', keywords: ['wordpress', 'wp', 'review', 'drafts', 'desk'], run: () => host.navigate(PATH + '?view=desk') }
+    })
+    ctx.register({
+      id: 'connect',
+      area: PALETTE_AREA,
+      data: { id: 'wpbruecke.connect', label: 'WordPress: connect a site', keywords: ['wordpress', 'wp', 'connect', 'password', 'site'], run: () => host.navigate(PATH + '?view=connect') }
     })
     ctx.register({
       id: 'new-draft',

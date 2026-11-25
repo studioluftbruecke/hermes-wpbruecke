@@ -38,14 +38,28 @@ HOME_HTML = """<!doctype html><html><head><title>Wordpress Test Page</title>
 ADMIN_CAPS = {"edit_posts": True, "upload_files": True, "publish_posts": True, "edit_published_posts": True,
               "edit_others_posts": True, "manage_options": True, "install_plugins": True, "moderate_comments": True}
 CONTRIB_CAPS = {"edit_posts": True}
+# True capabilities per role as users/me?context=edit lists them (P20), role-name caps included.
+ROLE_CAPS = {
+    "subscriber": {"read": True, "level_0": True, "subscriber": True},
+    "wpbruecke_reader": {"read": True, "wpbruecke_reader": True},
+    "contributor": {"read": True, "edit_posts": True, "delete_posts": True, "level_1": True, "contributor": True},
+    "wpbruecke_drafter": {"read": True, "edit_posts": True, "delete_posts": True, "upload_files": True,
+                          "wpbruecke_drafter": True},
+    "author": {"read": True, "edit_posts": True, "delete_posts": True, "upload_files": True, "publish_posts": True,
+               "edit_published_posts": True, "delete_published_posts": True, "author": True},
+    "editor": {"read": True, "edit_posts": True, "delete_posts": True, "upload_files": True, "publish_posts": True,
+               "publish_pages": True, "edit_pages": True, "edit_published_posts": True, "edit_others_posts": True,
+               "edit_others_pages": True, "moderate_comments": True, "manage_categories": True, "editor": True},
+    "administrator": {**ADMIN_CAPS, "edit_users": True, "edit_theme_options": True, "administrator": True},
+}
 
 
 class FakeWP:
     """A tiny WordPress: routes keyed by (METHOD, path); records every request."""
 
     def __init__(self, host: str = "test.example", user: str = "admin", caps: dict | None = None,
-                 password: str = "pw pw pw", namespaces: list | None = None) -> None:
-        self.host, self.user, self.password = host, user, password
+                 password: str = "pw pw pw", namespaces: list | None = None, roles: list | None = None) -> None:
+        self.host, self.user, self.password, self.roles = host, user, password, roles
         self.caps = ADMIN_CAPS if caps is None else caps
         self.namespaces = namespaces or ["oembed/1.0", "wp/v2", "wp-site-health/v1", "wp-abilities/v1"]
         self.requests: list = []
@@ -107,6 +121,13 @@ class FakeWP:
             return self.j(404, {"code": "rest_post_invalid_id", "message": "Invalid post ID."})
         if method == "GET":
             return self.j(200, post)
+        if method == "DELETE":
+            self.posts.pop(pid, None)
+            return self.j(200, {"deleted": True, "previous": post})
+        if data.get("status") in ("publish", "future") and not self.caps.get("publish_posts"):
+            return self.j(403, {"code": "rest_cannot_publish", "message": "Sorry, you are not allowed to publish."})
+        if data.get("status") == "future" and data.get("date"):
+            post["date"] = data["date"]
         for k, v in data.items():
             post[k] = {"raw": v, "rendered": v} if k in ("title", "content", "excerpt") else v
         post["modified_gmt"] = "2026-11-09T11:00:00"
@@ -144,10 +165,14 @@ class FakeWP:
         if p == "/wp-json/wp/v2/users/me":
             if not authed:
                 return self.j(401, {"code": "rest_not_logged_in", "message": "You are not currently logged in."})
-            roles = ["administrator"] if self.caps.get("manage_options") else ["contributor"]
+            roles = self.roles if self.roles is not None else \
+                (["administrator"] if self.caps.get("manage_options") else ["contributor"])
             return self.j(200, {"id": 1, "username": self.user, "name": self.user, "roles": roles, "capabilities": self.caps})
         if p.endswith("/application-passwords/introspect"):
             return self.j(200, {"name": "hermes-test", "uuid": "u"})
+        if re.match(r"^/wp-json/wp/v2/users/me/application-passwords/[\w-]+$", p) and method == "DELETE":
+            self.password = None  # the key is gone: every later call with it answers 401
+            return self.j(200, {"deleted": True, "previous": {"uuid": p.rsplit("/", 1)[1]}})
         if p == "/wp-json/wp/v2/themes":
             if not self.caps.get("manage_options"):
                 return self.j(403, {"code": "rest_cannot_view_themes", "message": "no"})
@@ -178,3 +203,55 @@ def secrets(**values):
     def get(name):
         return values.get(name)
     return get
+
+
+class Multi:
+    """One transport in front of several FakeWP sites, routed by host (wordpress.org goes to the first)."""
+
+    def __init__(self, *sites: FakeWP) -> None:
+        self.sites = {f.host: f for f in sites}
+        self.first = sites[0]
+
+    def __call__(self, method, url, headers, body, timeout):
+        return self.sites.get(urlparse(url).hostname, self.first)(method, url, headers, body, timeout)
+
+
+def pair(rt, site_id: str = "s"):
+    """Connect a keyed test site the v0.2 way: fill its settings group (rt.get_setting must be a
+    Settings) and write the pairing record a good connection check writes."""
+    groups = mod("groups")
+    site = rt.sites.get(site_id)
+    n = site["key_slot"]
+    rt.get_setting.update({f"site{n}_url": site["url"], f"site{n}_user": site["login"]})
+    password = rt.get_secret(f"WPBRUECKE_KEY{n}")
+    if password:
+        rt.records.put(groups.PairingRecord(n=n, host=groups.host(site["url"]), fp=groups.fingerprint(password),
+                                            proven_at="2026-11-24T00:00:00Z", site_id=site_id,
+                                            username=site["login"]))
+    return site
+
+
+def confirm(rt, site_id: str = "s", level: str | None = None) -> dict | None:
+    """What the page's Confirm writes: the live reading of the site's user as its access level (or ``level``
+    when given). None when WordPress' answer is a level Hermes refuses."""
+    enforce = mod("enforce")
+    site = rt.sites.get(site_id)
+    live = enforce.read_live(rt, site)
+    if level is None and live.level not in mod("access").LEVELS:
+        return None
+    granted = {"level": level or live.level, "role": (live.roles or ("",))[0], "caps_fingerprint": live.caps_fp,
+               "confirmed_at": "2026-11-24T00:00:00Z"}
+    rt.sites.update(site_id, {"access": granted}, "page", confirm=True)
+    enforce.forget(rt, site_id)
+    return granted
+
+
+def create_paired(rt, fields: dict, author: str = "person", confirmed: bool = True) -> dict:
+    """rt.sites.create, then pair() when the site names a group, then confirm() its live level (the page's
+    Confirm) unless ``confirmed=False``."""
+    res = rt.sites.create(fields, author)
+    if fields.get("key_slot"):
+        pair(rt, fields["id"])
+        if confirmed:
+            confirm(rt, fields["id"])
+    return res

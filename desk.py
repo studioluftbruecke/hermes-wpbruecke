@@ -8,6 +8,7 @@ Items live in ``desk/<id>.json`` through ``store.Store`` (atomic writes under th
        │   changes──▶ changes_requested ──revise──▶ waiting │
        ├──discard──▶ discarded                              │
        └── live status read back from WordPress ──▶ published | scheduled (any open state)
+       └── wp_draft apply at the Publish level ──▶ applied (staged copies)
 
 The person moves review, changes, discard and request_publish (the page's buttons); Hermes may add
 notes, revise (after changes were asked for) and request_publish ("ask for his publish click").
@@ -20,7 +21,8 @@ from typing import Any, Optional
 from .store import Store, StoreError, check_id, new_id, now_iso
 
 KINDS = ("new_post", "new_page", "staged_edit", "seo_fix", "build_page")
-STATES = ("waiting", "changes_requested", "reviewed", "publish_requested", "published", "scheduled", "discarded")
+STATES = ("waiting", "changes_requested", "reviewed", "publish_requested", "published", "scheduled", "applied",
+          "discarded")
 OPEN = ("waiting", "changes_requested", "reviewed", "publish_requested")
 ACTORS = ("hermes", "person")
 TRANSITIONS = {
@@ -89,7 +91,7 @@ class Desk:
 
     def create(self, *, site: str, site_url: str, kind: str, wp_type: str, wp_id: int, title: str,
                created_by: str = "hermes", source_id: Optional[int] = None, link: str = "",
-               live_status: str = "draft", note: str = "") -> dict:
+               live_status: str = "draft", note: str = "", automation_run: str = "") -> dict:
         if kind not in KINDS:
             raise DeskError(f"kind must be one of {', '.join(KINDS)}")
         if created_by not in ACTORS:
@@ -99,6 +101,8 @@ class Desk:
                 "created_by": created_by, "created_at": now_iso(), "updated_at": now_iso(), "state": "waiting",
                 "proof_id": None, "seo_id": None, "notes": [], "live_status": live_status,
                 "links": {"edit": edit_link(site_url, wp_id), "view": link}}
+        if automation_run:  # the automation cron run that created it (lanes.automation_may_publish)
+            item["automation_run"] = str(automation_run)
         if source_id:
             item["links"]["source_edit"] = edit_link(site_url, source_id)
         if note:
@@ -108,8 +112,8 @@ class Desk:
         return item
 
     def update(self, item_id: str, **changes: Any) -> dict:
-        if "created_by" in changes or "id" in changes:
-            raise DeskError("id and created_by never change")
+        if "created_by" in changes or "id" in changes or "automation_run" in changes:
+            raise DeskError("id, created_by and automation_run never change")
         with self.store.lock("desk"):
             item = self.require(item_id)
             item.update(changes)
@@ -163,6 +167,16 @@ class Desk:
                     item["state"] = "published"  # the connector's Apply trashes the copy after applying it
                     item["live_status"] = "applied"
             item["updated_at"] = now_iso()
+            self.store.write_json(self._path(item_id), item)
+        return item
+
+    def mark_applied(self, item_id: str) -> dict:
+        """A staged copy that wp_draft apply copied onto its live post (and deleted, read back)."""
+        with self.store.lock("desk"):
+            item = self.require(item_id)
+            if item["kind"] not in ("staged_edit", "seo_fix"):
+                raise DeskError("only a staged copy can be applied")
+            item["state"], item["live_status"], item["updated_at"] = "applied", "applied", now_iso()
             self.store.write_json(self._path(item_id), item)
         return item
 

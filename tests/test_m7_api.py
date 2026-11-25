@@ -1,17 +1,17 @@
 """Route handlers (api.py): shapes, refusals, live read-back. The FastAPI adapter is proven live."""
 import time
 
-from wpb_fakes import FakeWP, Settings, mod, secrets
+from wpb_fakes import ROLE_CAPS, FakeWP, Settings, create_paired, mod, secrets
 
 PW = secrets(WPBRUECKE_KEY1="pw pw pw")
 
 
 def make(tmp_path, connector=False, **site):
-    fake = FakeWP(user="admin", namespaces=["wp/v2"] + (["wpbruecke/v1"] if connector else []))
+    fake = FakeWP(user="admin", caps=ROLE_CAPS["editor"], roles=["editor"], namespaces=["wp/v2"] + (["wpbruecke/v1"] if connector else []))
     if connector:
         fake.routes[("GET", "/wp-json/wpbruecke/v1/info")] = FakeWP.j(200, {"version": "0.1.0"})
     rt = mod("runtime").Runtime(Settings(), PW, tmp_path, transport=fake, wporg_fetch=lambda u: {"version": "1"})
-    rt.sites.create({"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1, **site}, "person")
+    create_paired(rt, {"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1, **site}, "person")
     return fake, rt
 
 
@@ -41,17 +41,11 @@ def test_overview_empty_and_down(tmp_path):
     assert body["needs_you"][0]["kind"] == "down" and body["needs_you"][0]["urgent"]
 
 
-def test_review_link_refusals_and_link(tmp_path):
+def test_review_link_is_no_longer_refused_by_a_hard_rule(tmp_path):
     api = mod("api")
     fake, rt = make(tmp_path, connector=True)
     it = item(rt, fake)
-    s, b = api.review_link(rt, it["id"], "publish")
-    assert s == 403 and b["error"] == "hard_rule"
-    rt.sites.update("s", {"never_publish_never_send": False}, "person")
-    s, b = api.review_link(rt, it["id"], "publish")
-    assert s == 403 and b["error"] == "publishing_off"
-    rt.sites.update("s", {"publishing": "confirm"}, "person")
-    assert api.review_link(rt, it["id"], "schedule")[1]["error"] == "publishing_off"
+    assert api.review_link(rt, it["id"], "schedule")[1]["kind"] == "review"
     assert api.review_link(rt, it["id"], "apply")[0] == 400
     assert api.review_link(rt, it["id"], "delete")[0] == 400
     s, b = api.review_link(rt, it["id"], "publish")
@@ -61,7 +55,7 @@ def test_review_link_refusals_and_link(tmp_path):
 
 
 def test_review_link_without_connector_falls_back_to_the_editor(tmp_path):
-    fake, rt = make(tmp_path, never_publish_never_send=False, publishing="confirm")
+    fake, rt = make(tmp_path)
     it = item(rt, fake)
     s, b = mod("api").review_link(rt, it["id"], "publish")
     assert s == 200 and b["kind"] == "editor" and b["url"] == it["links"]["edit"]
@@ -73,7 +67,8 @@ def test_desk_item_reads_the_live_status_back(tmp_path):
     fake.posts[it["wp_id"]]["status"] = "publish"
     s, b = mod("api").desk_item(rt, it["id"])
     assert s == 200 and b["item"]["state"] == "published"
-    assert b["publishing"]["can_link"] is False and "Never publish" in b["publishing"]["why"]
+    assert b["publishing"]["can_publish"] is True and b["item"]["can_publish"] is True
+    assert b["publishing"]["level"] == "publish" and "act directly" in b["publishing"]["why"]
     gone = item(rt, fake)
     del fake.posts[gone["wp_id"]]
     assert mod("api").desk_item(rt, gone["id"])[1]["item"]["live_status"] == "gone"
@@ -100,10 +95,13 @@ def test_site_routes(tmp_path):
     s, b = api.site_patch(rt, "s", {"changes": {"label": "New"}, "preview": True})
     assert s == 200 and b["diff"] and rt.site("s")["label"] == ""
     assert api.site_patch(rt, "s", {"changes": {"publishing": "on"}})[1]["error"] == "invalid"
+    assert api.site_patch(rt, "s", {"changes": {"access": None}})[0] == 403
+    assert api.site_patch(rt, "s", {"changes": {"url": "https://x.example"}})[0] == 403
+    assert api.site_create(rt, {"fields": {"id": "k", "url": "https://k.example", "key_slot": 3}})[0] == 403
     assert api.site_patch(rt, "s", {})[0] == 400
     s, b = api.site_create(rt, {"fields": {"id": "t", "url": "https://t.example"}})
     assert s == 200 and b["site"]["id"] == "t"
-    assert len(api.site_history(rt, "s")[1]["versions"]) == 1
+    assert len(api.site_history(rt, "s")[1]["versions"]) == 2  # created, then the Confirm
 
 
 def test_jobs_busy_and_done(tmp_path):
@@ -151,7 +149,7 @@ def test_read_back_falls_back_to_the_public_view_when_edit_context_is_refused(tm
     real = fake.default
 
     def drafter(method, parsed, headers, body):
-        if "context=edit" in (parsed.query or ""):
+        if "context=edit" in (parsed.query or "") and parsed.path.startswith("/wp-json/wp/v2/posts/"):
             return FakeWP.j(403, {"code": "rest_forbidden_context", "message": "Sorry, you are not allowed to edit this post."})
         return real(method, parsed, headers, body)
     fake.default = drafter

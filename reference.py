@@ -58,9 +58,8 @@ def expand(target: str, make_runtime: Callable[[], Any]) -> str:
         lines = [head, f"Site {site['id']}: {row['label']} ({site['url']})",
                  f"Reachable: {row['reachable']}, REST {row['rest_ms']} ms, WordPress {row['wp_version'] or 'version hidden'}, "
                  f"theme {row['theme'] or '?'}",
-                 f"Access: {row['access']} ({', '.join(features.rights_words(facts)) or 'no key'}); hard rule "
-                 f"\"never publish, never send\": {'on' if site.get('never_publish_never_send', True) else 'off'}; "
-                 f"publishing: {site.get('publishing')}",
+                 f"Access: {row['access']} ({', '.join(features.rights_words(facts)) or 'no key'}); level: "
+                 f"{row.get('level') or 'not confirmed'}",
                  f"Drafts {row['drafts']}, pending {row['pending']}, published {row['published']}, updates {row['updates']}"]
         if mem.get("tone"):
             lines.append(f"Tone: {mem['tone']}")

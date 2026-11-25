@@ -1,11 +1,12 @@
-"""wp_draft: drafts, media, terms, SEO fields and staged copies. Never publishes (F4, F5, F11).
+"""wp_draft: drafts, media, terms, SEO fields, staged copies, and at the Publish level publish,
+schedule and apply (contract § 8, plan D6).
 
-Every write is planned first (``plan``); the ``pre_tool_call`` gate (hooks.py) and the handler build
-the same plan, so the approval card shows exactly what the handler then does. Status values other
-than ``draft`` and ``pending`` are refused here before any request: there is no way to publish,
-schedule or make private through this tool. A change to a published post is staged as a new draft
-copy (D8 b, provisional) carrying ``_wpbruecke_source`` when the connector registers that meta; the
-live post is never written.
+Every write is planned first (``plan``): the site's access level is checked there through
+``Runtime.require`` (enforce.py) before any write request, and the ``pre_tool_call`` gate (hooks.py)
+and the handler build the same plan. Within the level no card is asked. ``status`` on create and
+update stays ``draft`` or ``pending``; publishing is its own action. A change to a published post is
+staged as a new draft copy carrying ``_wpbruecke_source`` when the connector registers that meta;
+``apply`` copies it onto the live post. Every publishing write is read back and the reading returned.
 """
 from __future__ import annotations
 
@@ -18,11 +19,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..client import WPError
-from ..desk import Desk
-from ..facts import can_change_live
+from ..access import DRAFT_ACTIONS
+from ..desk import Desk, DeskError
 from ..runtime import NotFound, Runtime
 
-ACTIONS = ("create", "update", "upload_media", "stage", "set_seo")
+ACTIONS = ("create", "update", "upload_media", "stage", "set_seo", "publish", "schedule", "apply")
+PUBLISHING = ("publish", "schedule", "apply")
+SEO_META = ("_wpbruecke_title", "_wpbruecke_description", "_yoast_wpseo_metadesc", "_yoast_wpseo_title",
+            "rank_math_description", "rank_math_title", "_seopress_titles_desc", "_seopress_titles_title")
 ALLOWED_STATUS = ("draft", "pending")
 IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg", b"GIF8": "image/gif", b"RIFF": "image/webp"}
 MAX_IMAGE = 10 * 1024 * 1024
@@ -30,19 +34,23 @@ MAX_IMAGE = 10 * 1024 * 1024
 SCHEMA = {
     "name": "wp_draft",
     "description": (
-        "Write to a WordPress site as drafts only; this tool never publishes, schedules or makes anything "
-        "private (status may be draft or pending, anything else is refused before any request). "
-        "action=create: a new post or page (type post|page) with title, content (block markup, or plain text "
-        "where blank lines separate paragraphs and lines starting with ## become headings), excerpt, slug, "
-        "categories and tags by existing name, featured_image {path, alt} (a local PNG/JPEG/GIF/WebP file) or "
-        "featured_media (an id), seo {title, description} (needs the WPBrücke connector). action=update: change "
-        "a draft you or the person wrote (id); published posts are refused, use stage. action=stage: change a "
-        "published post or page (id) as a new draft copy; the live post stays untouched until the person applies "
-        "it. action=upload_media: an image file with alt text. action=set_seo: title/description on a draft, or "
-        "as a staged copy for a published post. Every write lands on the review desk; run wp_proof on the desk "
-        "item next. When the site's key can publish (or the site says always ask), the person approves each "
-        "call in a card; scheduled jobs and one-shot runs are refused except the person's own recurring-draft "
-        "automation for that site."),
+        "Write to a WordPress site within the access level the person confirmed for it (the role of the site's "
+        "WordPress user: read, drafts or publish). Anything above the level is refused before any request, with "
+        "the next step. action=create: a new post or page draft (type post|page) with title, content (block "
+        "markup, or plain text where blank lines separate paragraphs and lines starting with ## become headings), "
+        "excerpt, slug, categories and tags by existing name, featured_image {path, alt} (a local PNG/JPEG/GIF/WebP "
+        "file) or featured_media (an id), seo {title, description} (needs the WPBrücke connector); status draft or "
+        "pending only. action=update: change a draft (id); published posts are refused, use stage. action=stage: "
+        "change a published post or page (id) as a new draft copy; the live post stays untouched. "
+        "action=upload_media: an image file with alt text. action=set_seo: title/description on a draft, or as a "
+        "staged copy for a published post. Publish level only: action=publish (id) publishes a draft; "
+        "action=schedule (id, date as local ISO time like 2026-12-01T09:00) schedules it; action=apply (item = the "
+        "desk item of a staged copy, or id = the copy) copies title, content, excerpt and SEO fields onto the live "
+        "post and deletes the copy. These act without asking; each answer carries WordPress' read-back (status, "
+        "date, content hash). Every write lands on the review desk; run wp_proof on the desk item next. Scheduled "
+        "jobs and one-shot runs are refused except the person's own recurring-draft automation for that site, "
+        "which writes drafts and publishes only when the automation says publish: true, and then only the post "
+        "that same run created."),
     "parameters": {"type": "object", "properties": {
         "site": {"type": "string"},
         "action": {"type": "string", "enum": list(ACTIONS)},
@@ -58,20 +66,38 @@ SCHEMA = {
         "alt": {"type": "string", "description": "upload_media: alt text (required)"},
         "seo": {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string"}}},
         "note": {"type": "string", "description": "a line for the desk item (what changed and why)"},
+        "date": {"type": "string", "description": "schedule: local date and time, ISO (2026-12-01T09:00)"},
+        "item": {"type": "string", "description": "apply (also publish, schedule): the desk item id"},
     }, "required": ["site", "action"]},
 }
 
 
 class Refused(Exception):
-    def __init__(self, code: str, message: str, setting: str = "") -> None:
+    def __init__(self, code: str, message: str, setting: str = "", next: Optional[dict] = None) -> None:
         super().__init__(message)
-        self.code, self.message, self.setting = code, message, setting
+        self.code, self.message, self.setting, self.next = code, message, setting, next
 
     def to_dict(self) -> dict:
         out = {"ok": False, "error": self.code, "message": self.message, "sent": False}
         if self.setting:
             out["setting"] = self.setting
+        if self.next:
+            out["next"] = dict(self.next)
         return out
+
+
+def local_date(value: Any) -> str:
+    """A local ISO date and time (``2026-12-01T09:00`` or with seconds), as WordPress' ``date`` takes it."""
+    text = str(value or "").strip().replace(" ", "T")
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$", text)
+    if not m:
+        raise Refused("bad_args", "schedule needs date as local ISO time, like 2026-12-01T09:00")
+    from datetime import datetime
+    try:
+        when = datetime(*(int(g or 0) for g in m.groups()))
+    except ValueError as e:
+        raise Refused("bad_args", f"date {text}: {e}") from None
+    return when.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 @dataclass
@@ -139,23 +165,30 @@ def plan(rt: Runtime, args: dict) -> Plan:
     if status is not None and status not in ALLOWED_STATUS:
         raise Refused("no_publish", f"status {status!r} is refused: WPBrücke writes drafts (draft or pending) only. "
                       "Publishing is the person's click in WordPress (the desk links to it).")
+    item = None
+    if args.get("item"):
+        try:
+            item = Desk(rt.store).require(str(args["item"]))
+        except DeskError as e:
+            raise Refused("not_found", str(e)) from None
+        if args.get("site") and args["site"] != item["site"]:
+            raise Refused("bad_args", f"desk item {item['id']} belongs to site {item['site']}, not {args['site']}")
+        args = {**args, "site": item["site"], "type": item["wp_type"], "id": args.get("id") or item["wp_id"]}
     try:
         site = rt.site(str(args.get("site") or ""))
     except NotFound as e:
         raise Refused("not_found", str(e)) from None
-    if not site.get("key_slot") or not rt.key_present(site):
-        raise Refused("no_key", f"site {site['id']} has no key; wp_doctor shows how to add one", "key_slot")
+    if not site.get("key_slot"):
+        raise Refused("no_key", f"site {site['id']} is a public site without a password; connect it in a Site N "
+                      "group of the plugin settings (the WPBrücke page, Connect a site, walks you through it)", "key_slot")
+    if not rt.key_present(site):
+        raise Refused("no_key", f"site {site['id']} (Site {site['key_slot']}) is not connected ({rt.pairing(site)}); "
+                      "check it on the WPBrücke page", "key_slot")
+    refusal = rt.require(site, DRAFT_ACTIONS[action])
+    if refusal is not None:
+        raise Refused(refusal.code, refusal.message, next=refusal.next)
     facts = rt.site_facts(site)
-    rights = facts.get("rights") or {}
-    policy = rt.agent_writes(site)
-    if policy == "always":
-        needs, why = True, "the site file (or the plugin setting) says always ask"
-    elif not rights:
-        needs, why = True, "the key's rights could not be read, so WPBrücke cannot vouch that WordPress refuses a publish"
-    elif can_change_live(rights):
-        needs, why = True, "this site's key can publish or edit live posts, so WordPress would not stop a publish"
-    else:
-        needs, why = False, "drafts-only key"
+    needs, why = False, "within the site's access level"  # plan D6: no card inside the level
     ptype = str(args.get("type") or "post")
     if ptype not in ("post", "page"):
         raise Refused("bad_args", "type must be post or page")
@@ -178,6 +211,16 @@ def plan(rt: Runtime, args: dict) -> Plan:
                 lines.append(f"{k}: {str(args[k])[:200]}")
         if args.get("content"):
             lines.append(f"content: {len(str(args['content']))} characters: {str(args['content'])[:300]}")
+    elif action in PUBLISHING:
+        if args.get("id") is None:
+            raise Refused("bad_args", f"{action} needs id or item")
+        if action == "schedule":
+            args = {**args, "date": local_date(args.get("date"))}
+            lines.append(f"schedule {ptype} {int(args['id'])} for {args['date']}")
+        elif action == "apply":
+            lines.append(f"apply the staged copy {int(args['id'])} to its live {ptype}")
+        else:
+            lines.append(f"publish {ptype} {int(args['id'])}")
     elif action == "upload_media":
         if not args.get("path") or not str(args.get("alt") or "").strip():
             raise Refused("bad_args", "upload_media needs path and alt (alt text is required)")
@@ -222,7 +265,7 @@ def upload(client, path: str, alt: str, title: str = "") -> dict:
     return {"id": media["id"], "src": media.get("source_url"), "alt": alt[:300]}
 
 
-def execute(rt: Runtime, p: Plan, created_by: str = "hermes") -> dict:
+def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: str = "") -> dict:
     site, args = p.site, p.args
     client = rt.client(site)
     desk = Desk(rt.store)
@@ -232,6 +275,8 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes") -> dict:
     meta, seo_problem = _seo_meta(p.facts, args.get("seo") or {})
     if seo_problem:
         notes.append(seo_problem)
+    if p.action in PUBLISHING:
+        return {**out, **publishing(client, desk, p)}
     if p.action == "upload_media":
         media = upload(client, args["path"], str(args["alt"]))
         return {**out, "media": media, "next": "pass featured_media to wp_draft create/update"}
@@ -263,7 +308,8 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes") -> dict:
         post = client.post(route, body)
         item = desk.create(site=site["id"], site_url=site["url"], kind="new_page" if ptype == "page" else "new_post",
                            wp_type=ptype, wp_id=post["id"], title=_title(post), created_by=created_by,
-                           link=post.get("link") or "", live_status=post.get("status"), note=str(args.get("note") or ""))
+                           link=post.get("link") or "", live_status=post.get("status"), note=str(args.get("note") or ""),
+                           automation_run=automation_run)
         out.update(wp_id=post["id"], status=post.get("status"), desk_item=item["id"], links=item["links"])
     else:
         pid = int(args["id"])
@@ -320,19 +366,113 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes") -> dict:
     return out
 
 
+def _raw(post: dict, key: str) -> str:
+    value = post.get(key)
+    return str((value.get("raw") if value.get("raw") is not None else value.get("rendered")) or "") \
+        if isinstance(value, dict) else str(value or "")
+
+
+def content_hash(text: str) -> str:
+    return hashlib.sha256((text or "").encode()).hexdigest()[:12]
+
+
+def reading(post: dict) -> dict:
+    """What WordPress says about a post after a write (the read-back every publishing action returns)."""
+    return {"id": post.get("id"), "status": post.get("status"), "date": post.get("date"),
+            "date_gmt": post.get("date_gmt"), "link": post.get("link"), "title": _raw(post, "title")[:200],
+            "content_hash": content_hash(_raw(post, "content"))}
+
+
+def _desk_item(desk: Desk, p: Plan, pid: int) -> Optional[dict]:
+    if p.args.get("item"):
+        return desk.get(str(p.args["item"]))
+    return desk.find(p.site["id"], pid)
+
+
+def publishing(client, desk: Desk, p: Plan) -> dict:
+    """publish, schedule or apply (contract § 8), each read back from WordPress."""
+    from .content import do_not_touch
+    ptype = str(p.args.get("type") or "post")
+    route = f"/wp-json/wp/v2/{ptype}s"
+    pid = int(p.args["id"])
+    post = client.get(f"{route}/{pid}", context="edit")
+    item = _desk_item(desk, p, pid)
+    if p.action == "apply":
+        return _apply(client, desk, p, route, post, item)
+    if do_not_touch(p.site, post):
+        raise Refused("do_not_touch", f"{ptype} {pid} is on the site file's do-not-touch list; nothing was sent",
+                      "memory.do_not_touch")
+    if post.get("status") == "publish":
+        raise Refused("already_published", f"{ptype} {pid} is already published; nothing was sent")
+    if item is not None and item.get("kind") in ("staged_edit", "seo_fix"):
+        raise Refused("staged_copy", f"{ptype} {pid} is a staged copy of a live post; use action=apply, which copies "
+                      "it onto the live post")
+    body = {"status": "publish"} if p.action == "publish" else {"status": "future", "date": p.args["date"]}
+    client.post(f"{route}/{pid}", body)
+    after = reading(client.get(f"{route}/{pid}", context="edit"))
+    want = "publish" if p.action == "publish" else "future"
+    out = {"wp_id": pid, "read_back": after, "status": after["status"], "confirmed": after["status"] == want}
+    if p.action == "schedule" and after["status"] == "publish":
+        out["note"] = "WordPress published it at once: the date is not in the future in the site's time zone"
+    if item is not None:
+        item = desk.sync_live(item["id"], after["status"])
+        out.update(desk_item=item["id"], desk_state=item["state"])
+    return out
+
+
+def _apply(client, desk: Desk, p: Plan, route: str, copy: dict, item: Optional[dict]) -> dict:
+    from .content import do_not_touch
+    meta = copy.get("meta") if isinstance(copy.get("meta"), dict) else {}
+    source = (item or {}).get("source_id") or meta.get("_wpbruecke_source")
+    if not source:
+        raise Refused("not_staged", f"{p.args.get('type') or 'post'} {copy.get('id')} is not a staged copy (no desk item "
+                      "with a live post and no _wpbruecke_source); nothing was sent")
+    source = int(source)
+    live = client.get(f"{route}/{source}", context="edit")
+    if do_not_touch(p.site, live):
+        raise Refused("do_not_touch", f"post {source} is on the site file's do-not-touch list; nothing was sent",
+                      "memory.do_not_touch")
+    body = {"title": _raw(copy, "title"), "content": _raw(copy, "content"), "excerpt": _raw(copy, "excerpt")}
+    seo = {k: v for k, v in meta.items() if k in SEO_META and v not in (None, "")}
+    if seo:
+        body["meta"] = seo
+    client.post(f"{route}/{source}", body)
+    after_post = client.get(f"{route}/{source}", context="edit")
+    after = reading(after_post)
+    expected = content_hash(body["content"])
+    out = {"wp_id": source, "copy_id": copy.get("id"), "read_back": after, "status": after["status"],
+           "applied_fields": sorted(k for k in body if k != "meta") + [f"meta.{k}" for k in sorted(seo)],
+           "content_matches": after["content_hash"] == expected, "expected_content_hash": expected}
+    after_meta = after_post.get("meta") if isinstance(after_post.get("meta"), dict) else {}
+    if seo:
+        out["seo_matches"] = all(after_meta.get(k) == v for k, v in seo.items())
+    client.delete(f"{route}/{int(copy['id'])}", force="true")
+    from ..client import WPError as _WPError
+    try:
+        client.get(f"{route}/{int(copy['id'])}", context="edit", _fields="id,status")
+        out["copy_deleted"] = False
+    except _WPError as e:
+        out["copy_deleted"] = e.kind == "not_found" or e.status == 410
+    if item is not None:
+        item = desk.mark_applied(item["id"])
+        out.update(desk_item=item["id"], desk_state=item["state"])
+    out["confirmed"] = bool(out["content_matches"] and out["copy_deleted"])
+    return out
+
+
 def _title(post: dict) -> str:
     t = post.get("title") or {}
     return html.unescape(str((t.get("raw") if isinstance(t, dict) else t) or (t.get("rendered") if isinstance(t, dict) else "") or ""))
 
 
-def run(rt: Runtime, args: dict, approved: bool, created_by: str = "hermes") -> dict:
+def run(rt: Runtime, args: dict, approved: bool, created_by: str = "hermes", automation_run: str = "") -> dict:
     """The handler body after the lanes check: ``approved`` says Hermes' gate passed this exact call."""
     try:
         p = plan(rt, args)
         if p.needs_card and not approved:
             return Refused("not_approved", "This write needs the person's approval in Hermes and did not get it "
                            "(no card was answered for this exact call). Nothing was sent.").to_dict()
-        return execute(rt, p, created_by)
+        return execute(rt, p, created_by, automation_run)
     except Refused as r:
         return r.to_dict()
     except WPError as e:

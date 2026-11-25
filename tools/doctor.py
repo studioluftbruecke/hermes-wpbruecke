@@ -25,7 +25,9 @@ SCHEMA = {
 
 def site_report(rt: Runtime, site: dict, refresh: bool = True) -> dict:
     key_env = settings_mod.slot_env(site.get("key_slot"))
-    key_set = rt.key_present(site) if key_env else False
+    key_set = bool(rt.group_password(site["key_slot"])) if key_env else False
+    st = rt.standing(site, refresh=refresh)
+    pairing = st.pairing
     facts = rt.site_facts(site, refresh=refresh)
     ev = features_mod.evaluate(site, facts)
     proposal = sorted(set((facts.get("seo_public") or {}).get("third_party_hosts") or [])
@@ -36,10 +38,19 @@ def site_report(rt: Runtime, site: dict, refresh: bool = True) -> dict:
     else:
         lines.append(f"{site['url']}: {facts_mod_summary(facts)}")
     if not key_env:
-        lines.append("no key slot: public facts only")
+        lines.append("public site: public facts only")
     elif not key_set:
-        lines.append(f"key slot {site['key_slot']} is empty: store the application password in Hermes' plugin "
-                     f"settings as {key_env} (Capabilities, Plugins, wpbruecke, Settings)")
+        lines.append(f"Site {site['key_slot']} has no application password: paste it into Site {site['key_slot']} · "
+                     "application password in the plugin settings (the WPBrücke page, Connect a site)")
+    elif pairing != "paired":
+        lines.append(f"Site {site['key_slot']} is not connected yet ({pairing}): check it on the WPBrücke page; "
+                     "until then no password is sent")
+    elif st.effective == "unconfirmed":
+        lines.append("access level not confirmed yet: confirm it on the WPBrücke page; until then Hermes reads only "
+                     "what the public sees")
+    elif st.effective == "stopped":
+        lines.append(f"stopped: {st.stop_reason}; nothing keyed runs until the person confirms again on the "
+                     "WPBrücke page")
     elif facts.get("user"):
         u = facts["user"]
         lines.append(f"key {key_env} belongs to {u.get('username')} ({', '.join(u.get('roles') or []) or 'no role'})"
@@ -55,9 +66,9 @@ def site_report(rt: Runtime, site: dict, refresh: bool = True) -> dict:
         "rest_ms": facts.get("rest_ms"), "wp_version": facts.get("wp_version"), "theme": facts.get("theme"),
         "key_slot": site.get("key_slot") or 0, "key_env": key_env, "key_set": key_set,
         "user": facts.get("user"), "key_name": facts.get("key_name"),
-        "rights": features_mod.rights_words(facts), "access": features_mod.access_label(facts, site),
+        "rights": features_mod.rights_words(facts), "access": features_mod.access_label(facts, site, st.effective),
         "warnings": features_mod.key_warnings(facts), "connector": conn,
-        "hard_rule": bool(site.get("never_publish_never_send", True)), "publishing": site.get("publishing"),
+        "group": site.get("key_slot") or None, "pairing": pairing, **st.row(),
         "available": [f["feature"] for f in ev["available"]], "not_available": ev["unavailable"],
         "proof_extra_hosts_proposal": proposal, "errors": facts.get("errors") or [], "lines": lines,
         "facts_cache": facts.get("cache"),
@@ -71,6 +82,8 @@ def facts_mod_summary(facts: dict) -> str:
 
 def run(rt: Runtime, site_id: Optional[str] = None, refresh: bool = True) -> dict:
     out = {"ok": True, "settings_warnings": list(rt.settings.warnings), "sites": []}
+    if rt.sync_problems:
+        out["sync_problems"] = rt.sync_problems
     if site_id:
         try:
             sites = [rt.site(site_id)]
@@ -80,8 +93,9 @@ def run(rt: Runtime, site_id: Optional[str] = None, refresh: bool = True) -> dic
         sites = [s for s in rt.sites.all() if "error" not in s]
         out["broken_site_files"] = [s for s in rt.sites.all() if "error" in s]
     if not sites:
-        out["next_steps"] = ("No site yet. Add one with wp_sites action=add (id, url; login and key_slot when you "
-                             "have an application password), or on the WPBrücke page.")
+        out["next_steps"] = ("No site yet. The person connects one in a Site N group of the plugin settings (the "
+                             "WPBrücke page, Connect a site, walks them through it); a public site without a "
+                             "password can be added with wp_sites action=add (id, url).")
         return out
     for site in sites:
         out["sites"].append(site_report(rt, site, refresh))

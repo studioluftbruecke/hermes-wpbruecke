@@ -1,6 +1,6 @@
 import json
 
-from wpb_fakes import FakeWP, Settings, mod, secrets
+from wpb_fakes import ROLE_CAPS, FakeWP, Settings, create_paired, mod, secrets
 
 
 def rt_for(tmp_path, fake, key="pw pw pw"):
@@ -18,10 +18,10 @@ def post_route(fake, pid=12, slug="about", raw="<!-- wp:paragraph -->\n<p>Hi</p>
 
 
 def test_get_returns_blocks_terms_seo_and_do_not_touch(tmp_path):
-    fake = FakeWP()
+    fake = FakeWP(caps=ROLE_CAPS["editor"], roles=["editor"])
     post_route(fake)
     rt = rt_for(tmp_path, fake)
-    rt.sites.create({"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1,
+    create_paired(rt, {"id": "s", "url": "https://test.example", "login": "admin", "key_slot": 1,
                      "memory": {"do_not_touch": ["about"]}}, "person")
     r = mod("tools.content").handle(rt, {"site": "s", "action": "get", "id": 12})
     assert r["ok"] and r["title"] == "About & us" and r["content_format"] == "blocks"
@@ -50,7 +50,7 @@ def test_reference_parse_and_expand(tmp_path):
     fake = FakeWP()
     post_route(fake)
     rt = rt_for(tmp_path, fake)
-    rt.sites.create({"id": "test-wp", "url": "https://test.example", "login": "admin", "key_slot": 1,
+    create_paired(rt, {"id": "test-wp", "url": "https://test.example", "login": "admin", "key_slot": 1,
                      "memory": {"tone": "plain, first person", "do_not_touch": ["impressum"]}}, "person")
     site_text = ref.expand("test-wp", lambda: rt)
     assert site_text.startswith("[WPBrücke: @wp:test-wp on test.example") and "Tone: plain, first person" in site_text
@@ -66,7 +66,7 @@ def test_reference_cuts_long_content(tmp_path):
     fake = FakeWP()
     post_route(fake, raw="x" * 20000)
     rt = rt_for(tmp_path, fake)
-    rt.sites.create({"id": "t", "url": "https://test.example", "login": "admin", "key_slot": 1}, "person")
+    create_paired(rt, {"id": "t", "url": "https://test.example", "login": "admin", "key_slot": 1}, "person")
     out = mod("reference").expand("t/12", lambda: rt)
     assert len(out) < 6200 and out.endswith("[cut at 6000 characters]")
 

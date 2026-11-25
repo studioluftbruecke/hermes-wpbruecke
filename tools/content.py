@@ -58,6 +58,14 @@ def do_not_touch(site: dict, post: dict) -> bool:
     return bool(names) and (str(post.get("id")) in names or str(post.get("slug") or "").lower() in names)
 
 
+def _no_key(rt: Runtime, site: dict, message: str) -> dict:
+    """A keyed read on a site whose password may not be used now: the level's refusal, else no_key."""
+    refusal = rt.require(site, "keyed_read") if site.get("key_slot") else None
+    if refusal is not None and refusal.code != "no_key":
+        return {**refusal.to_dict(), "site": site["id"]}
+    return {"ok": False, "error": "no_key", "message": message}
+
+
 def handle(rt: Runtime, args: dict) -> dict:
     action = str(args.get("action") or "")
     if action not in ACTIONS:
@@ -78,8 +86,8 @@ def handle(rt: Runtime, args: dict) -> dict:
             if status not in STATUSES:
                 return {"ok": False, "error": "bad_args", "message": f"status must be one of {', '.join(STATUSES)}"}
             if status != "publish" and not keyed:
-                return {"ok": False, "error": "no_key", "message": "drafts and other non-public posts need a key slot "
-                        "for this site (wp_doctor shows how)"}
+                return _no_key(rt, site, "drafts and other non-public posts need a connected password for this site "
+                                         "(wp_doctor shows how)")
             params = {"per_page": 20, "page": max(1, int(args.get("page") or 1)), "status": status,
                       "_fields": "id,title,status,date,modified,link,author,slug,meta"}
             if keyed:
@@ -128,7 +136,7 @@ def handle(rt: Runtime, args: dict) -> dict:
             return out
         if action in ("revisions", "autosaves"):
             if not keyed:
-                return {"ok": False, "error": "no_key", "message": f"{action} need a key slot for this site"}
+                return _no_key(rt, site, f"{action} need a connected password for this site")
             items = client.get(f"{route}/{pid}/{action}", context="edit", _fields="id,author,date,modified,title,parent")
             return {"ok": True, "site": site["id"], "id": pid, action: [
                 {"id": r.get("id"), "author": r.get("author"), "date": r.get("date"), "modified": r.get("modified"),
@@ -140,13 +148,16 @@ def handle(rt: Runtime, args: dict) -> dict:
             params = {"post": pid, "per_page": 50, "status": status, "_fields": "id,author_name,date,content,status,link"}
             if status == "hold":
                 if not keyed:
-                    return {"ok": False, "error": "no_key", "message": "held comments need a key"}
+                    return _no_key(rt, site, "held comments need a connected password")
                 params["context"] = "edit"
             items, total = client.get_with_total("/wp-json/wp/v2/comments", **params)
             return {"ok": True, "site": site["id"], "post": pid, "total": total, "comments": [
                 {"id": c.get("id"), "author": c.get("author_name"), "date": c.get("date"), "status": c.get("status"),
                  "text": re.sub(r"<[^>]+>", "", _text(c.get("content")))[:2000]} for c in items], "note": DATA_NOTE}
     except WPError as e:
+        refusal = rt.require(site, "keyed_read") if site.get("key_slot") and not keyed else None
+        if refusal is not None:
+            return {**refusal.to_dict(), "site": site["id"], "wp": e.to_dict()}
         return {"ok": False, "site": site["id"], **e.to_dict()}
     except (TypeError, ValueError) as e:
         return {"ok": False, "error": "bad_args", "message": str(e)}

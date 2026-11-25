@@ -3,7 +3,8 @@
 The handlers are `api.py`'s functions; this file only adapts them to FastAPI. Hermes loads it as a
 standalone module in the profile's plugin host child (no `ctx`), so the plugin folder is loaded here
 as a package by path. Settings come from the profile config (`plugins.entries.wpbruecke.settings`),
-secrets from Hermes' secret scope, and the data folder is the agent half's `ctx.state.data_dir`
+secrets from Hermes' secret scope (read fresh per request in a plugin host child, see `_get_secret`),
+and the data folder is the agent half's `ctx.state.data_dir`
 (`plugin-data/agent-plugin-wpbruecke-<digest>`), resolved per call so it follows the profile.
 Handlers are sync: FastAPI runs them on a worker thread, so a slow site never blocks the loop.
 """
@@ -12,7 +13,9 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.util
+import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +24,8 @@ from fastapi.responses import JSONResponse
 
 PLUGIN = "wpbruecke"
 _PACKAGE = "hermes_wpbruecke_dashboard"
+_HOST_PROCESS_ENV = "HERMES_PLUGIN_HOST_PROCESS"  # set by Hermes in a plugin host process
+_PREFIX = PLUGIN.upper() + "_"
 
 router = APIRouter()
 
@@ -51,10 +56,49 @@ def _get_setting(key: str, default: Any = None) -> Any:
     return ((entries.get(PLUGIN) or {}).get("settings") or {}).get(key, default)
 
 
+_SCOPE_TTL_S = 2.0  # one build serves a page load's burst of reads; a saved password shows within it
+_SCOPE_CACHE: dict = {}
+
+
+def _own_secrets(home: Path) -> Optional[dict]:
+    """The plugin's own keys from Hermes' scope builder, built again after _SCOPE_TTL_S. Only
+    `WPBRUECKE_*` keys are kept between requests."""
+    now = time.monotonic()
+    cached = _SCOPE_CACHE.get(str(home))
+    if cached and now - cached["at"] < _SCOPE_TTL_S:
+        return cached["values"]
+    try:
+        from agent.secret_scope import build_profile_secret_scope
+
+        built = build_profile_secret_scope(home)
+    except Exception:
+        return None
+    values = {k: v for k, v in (built or {}).items() if k.startswith(_PREFIX)}
+    _SCOPE_CACHE[str(home)] = {"at": now, "values": values}
+    return values
+
+
 def _get_secret(name: str) -> Optional[str]:
+    """The profile's current value. These routes run in the profile's plugin host child
+    (`HERMES_PLUGIN_HOST_PROCESS=1`), whose environment holds the secrets as they were when it
+    started, so a password saved in the settings form afterwards would stay invisible until Hermes
+    restarts. There the plugin's own keys come from Hermes' scope builder (the one each gateway turn
+    uses), and its answer is final: a key missing there is missing, never brought back from the
+    launch environment. Everywhere else the request already runs in a fresh profile scope."""
     from agent.secret_scope import get_secret
 
+    if os.environ.get(_HOST_PROCESS_ENV) == "1" and name.startswith(_PREFIX):
+        try:
+            current = _own_secrets(_home())
+        except Exception:
+            current = None
+        if current is not None:
+            return current.get(name) or None
     return get_secret(name)
+
+
+def _profile() -> str:
+    return _sub("profile").current_name(_home())
 
 
 def _home() -> Path:
@@ -92,6 +136,36 @@ def _api():
 @router.get("/overview")
 def overview() -> JSONResponse:
     return _reply(_api().overview(_rt()))
+
+
+@router.get("/groups")
+def groups() -> JSONResponse:
+    return _reply(_api().groups_view(_rt(), _profile()))
+
+
+@router.post("/sites/check")
+def sites_check(body: dict = Body(default={})) -> JSONResponse:
+    return _reply(_api().sites_check(_rt(), body, _profile()))
+
+
+@router.post("/sites/{site_id}/confirm")
+def site_confirm(site_id: str, body: dict = Body(default={})) -> JSONResponse:
+    return _reply(_api().site_confirm(_rt(), site_id, body, _profile()))
+
+
+@router.post("/sites/{site_id}/revoke")
+def site_revoke(site_id: str) -> JSONResponse:
+    return _reply(_api().site_revoke(_rt(), site_id))
+
+
+@router.delete("/sites/{site_id}")
+def site_delete(site_id: str) -> JSONResponse:
+    return _reply(_api().site_delete(_rt(), site_id))
+
+
+@router.post("/public-sites")
+def public_site_create(body: dict = Body(default={})) -> JSONResponse:
+    return _reply(_api().public_site_create(_rt(), body))
 
 
 @router.get("/sites/{site_id}")
@@ -132,6 +206,21 @@ def desk_review(item_id: str) -> JSONResponse:
 @router.post("/desk/{item_id}/changes")
 def desk_changes(item_id: str, body: dict = Body(default={})) -> JSONResponse:
     return _reply(_api().desk_changes(_rt(), item_id, body))
+
+
+@router.post("/desk/{item_id}/publish")
+def desk_publish(item_id: str) -> JSONResponse:
+    return _reply(_api().desk_act(_rt(), item_id, "publish"))
+
+
+@router.post("/desk/{item_id}/schedule")
+def desk_schedule(item_id: str, body: dict = Body(default={})) -> JSONResponse:
+    return _reply(_api().desk_act(_rt(), item_id, "schedule", body))
+
+
+@router.post("/desk/{item_id}/apply")
+def desk_apply(item_id: str) -> JSONResponse:
+    return _reply(_api().desk_act(_rt(), item_id, "apply"))
 
 
 @router.get("/desk/{item_id}/review-link")

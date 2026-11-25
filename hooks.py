@@ -128,7 +128,7 @@ def make_observer(tickets: Tickets = TICKETS):
 
 # --- The agent may not quietly loosen its own guardrails ---------------------------------------------
 # Watched: this profile's config.yaml and .env, the plugin copy it loaded, WPBrücke's data folder (the
-# site files carry the hard rule, publishing and automations), and `hermes` commands that change this
+# site files carry the access level and automations), and `hermes` commands that change this
 # profile's settings or this plugin. Reads (cat, grep, hermes config get) pass.
 
 GUARDED_TOOLS = ("write_file", "patch", "terminal", "execute_code")
@@ -210,6 +210,6 @@ def make_settings_guard(run_context: Callable[[], Any], enabled_here: Callable[[
             return block("guardrail", f"This call {what}, which can change WPBrücke's own rules, and {reason}, so no "
                                       "one can approve it.")
         return {"action": "approve", "rule_key": f"{RULE_NS}settings:{tool_name}",
-                "message": (f"This call {what}. That can change WPBrücke's guardrails (the hard rule, publishing, "
-                            "automations, which key a site uses). Approve only if you asked for it.")}
+                "message": (f"This call {what}. That can change WPBrücke's guardrails (a site's access level, "
+                            "automations, which password a site uses). Approve only if you asked for it.")}
     return wpbruecke_settings_guard

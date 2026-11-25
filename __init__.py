@@ -1,7 +1,8 @@
 """WPBrücke · for WordPress: run one WordPress site or many from Hermes.
 
-Hermes writes drafts, proves every change in a real browser, checks SEO, and leaves publishing to a
-person. This file only wires: tools, hooks, the ``@wp:`` reference, the CLI command and
+Hermes works on each site as the WordPress user the person created for it; that user's role is the
+access level (read, drafts, publish), enforced in enforce.py before any request. Hermes proves every
+change in a real browser and checks SEO. This file only wires: tools, hooks, the ``@wp:`` reference, the CLI command and
 the bundled skill. Sibling modules are imported lazily (``_mod``) and once in ``register()`` so a
 broken install fails at load. Secrets are read at call time through Hermes' secret scope
 (``agent.secret_scope.get_secret``), never from ``os.environ`` or a file (catalog rule 11).
@@ -97,8 +98,21 @@ def make_sites_handler(get_setting: SettingGetter, data_dir: Any, get_secret: Se
     return handler
 
 
+def _migrate(ctx, get_setting: SettingGetter, data_dir: Any, get_secret: Optional[SecretGetter] = None) -> Any:
+    """The 0.1.0 site files into settings groups, once (contract § 12). Never fails register()."""
+    if not data_dir:
+        return None
+    try:
+        store = _mod("store").Store(data_dir)
+        return _mod("migration").migrate(store, get_setting, get_secret or _default_secret, ctx.set_config)
+    except Exception:
+        logger.warning("wpbruecke: the 0.1.0 migration did not finish", exc_info=True)
+        return None
+
+
 def register(ctx) -> None:
-    for name in ("store", "yamlish", "settings", "sites", "client", "facts", "features", "runtime",
+    for name in ("store", "yamlish", "settings", "sites", "groups", "access", "enforce", "connect", "migration", "client",
+                 "facts", "features", "runtime",
                  "tools.doctor", "tools.sites", "cli", "profile", "reference", "tools.content", "lanes", "desk", "hooks",
                  "tools.draft", "tools.desk", "tick", "api", "tools.proof", "tools.seo", "tools.build",
                  "proof.checks", "proof.diff", "proof.runner", "seo.post", "seo.site", "seo.fields", "gp.blocks", "gp.build"):
@@ -108,6 +122,7 @@ def register(ctx) -> None:
         return ctx.get_config(key, default)
 
     data_dir = _state_dir(ctx)
+    _migrate(ctx, get_setting, data_dir)
     _LIVE.update(get_setting=get_setting, data_dir=data_dir)
     doctor, sites = _mod("tools.doctor"), _mod("tools.sites")
     ctx.register_tool(name="wp_doctor", toolset=TOOLSET, schema=doctor.SCHEMA,
@@ -192,7 +207,7 @@ def _register_content(ctx, get_setting: SettingGetter, data_dir: Any) -> None:
     skill = Path(__file__).resolve().parent / "skills" / SKILL_NAME / "SKILL.md"
     if hasattr(ctx, "register_skill") and skill.exists():
         try:
-            ctx.register_skill(SKILL_NAME, skill, "Work on WordPress sites with WPBrücke: drafts only, proof, SEO.")
+            ctx.register_skill(SKILL_NAME, skill, "Work on WordPress sites with WPBrücke: drafts, publishing at its level, proof, SEO.")
         except ValueError:
             pass  # already registered by an earlier load in this process
     provider = make_reference_provider(__name__)
@@ -212,27 +227,52 @@ def _run_context_fn(ctx):
     return run
 
 
-def decide_draft(rt, args: dict, run) -> dict:
-    """The gate's verdict for one wp_draft call (also used by the handler for the unattended lane)."""
-    draft, lanes = _mod("tools.draft"), _mod("lanes")
+def _desk_item_for(rt, args: dict):
+    """The desk item a wp_draft call names (``item``, else ``site`` + ``id``), or None."""
+    desk = _mod("desk")
     try:
-        p = draft.plan(rt, args)
+        if args.get("item"):
+            return desk.Desk(rt.store).get(str(args["item"]))
+        if args.get("site") and args.get("id") is not None:
+            return desk.Desk(rt.store).find(str(args["site"]), args["id"])
+    except Exception:
+        return None
+    return None
+
+
+def decide_draft(rt, args: dict, run) -> dict:
+    """The gate's verdict for one wp_draft call (the handler asks the same). An unattended run is refused
+    from the site file alone, before any request; then plan() checks the access level (enforce.py)
+    before any write. Within the level there is no card (plan D6)."""
+    draft, lanes = _mod("tools.draft"), _mod("lanes")
+    reason = run.unattended_reason()
+    automation = None
+    if reason:
+        try:
+            site = rt.sites.get(str(args.get("site") or ""))
+        except Exception:
+            site = None
+        ok, why = lanes.automation_permission(run, site, str(args.get("action") or ""))
+        if not ok:
+            return {"verdict": "block", "code": "unattended",
+                    "message": f"Writes to WordPress need a person, and {reason} ({why}). Nothing was sent. Reads, "
+                               "proofs and SEO checks still work."}
+        automation = why
+        if str(args.get("action") or "") == "publish":
+            ok, why = lanes.automation_may_publish(run, _desk_item_for(rt, args), args.get("id"))
+            if not ok:
+                return {"verdict": "block", "code": "unattended", "message": f"{why}. Nothing was sent."}
+    try:
+        draft.plan(rt, args)
     except draft.Refused as r:
         return {"verdict": "block", "code": r.code, "message": r.message}
-    reason = run.unattended_reason()
-    if reason:
-        ok, why = lanes.automation_permission(run, p.site, p.facts, p.action)
-        if ok:
-            return {"verdict": "allow", "automation": why}
-        return {"verdict": "block", "code": "unattended",
-                "message": f"Writes to WordPress need a person, and {reason} ({why}). Nothing was sent. Reads, "
-                           "proofs and SEO checks still work."}
-    if not p.needs_card:
-        return {"verdict": "allow"}
-    return {"verdict": "card", "message": p.approval_text(), "rule_key": f"wpbruecke:wp_draft:{p.site['id']}"}
+    return {"verdict": "allow", **({"automation": automation} if automation else {})}
 
 
 def decide_sites(rt, args: dict, run) -> dict:
+    refused = _mod("tools.sites").refusal(rt, args)
+    if refused:
+        return {"verdict": "block", "code": "refused", "message": refused["message"]}
     touched = _mod("tools.sites").touches_guarded(args)
     reason = run.unattended_reason()
     if reason:
@@ -271,7 +311,8 @@ def make_draft_handler(get_setting: SettingGetter, data_dir: Any, run_context, g
                 tickets.revoke(key)
                 return {"ok": False, "error": d.get("code", "refused"), "message": d["message"], "sent": False}
             approved = tickets.take(key) or d["verdict"] == "allow"
-            out = _mod("tools.draft").run(rt, args, approved=approved)
+            out = _mod("tools.draft").run(rt, args, approved=approved,
+                                          automation_run=run.run_key() if d.get("automation") else "")
             if d.get("automation") and out.get("ok"):
                 out["lane"] = f"unattended, allowed by {d['automation']}"
             return out
@@ -291,6 +332,9 @@ def make_gated_sites_handler(get_setting: SettingGetter, data_dir: Any, run_cont
             if not data_dir:
                 return _no_data()
             rt = make_runtime(get_setting, data_dir, get_secret, **kw)
+            refused = _mod("tools.sites").refusal(rt, args)
+            if refused:
+                return refused
             if _mod("tools.sites").touches_guarded(args):
                 key = tickets.key("wp_sites", kwargs.get("session_id"), args)
                 d = decide_sites(rt, args, run_context())
@@ -377,7 +421,8 @@ def _draft_runner(rt, args_key_tool: str, args: dict, session_id: Any, run, tick
             tickets.revoke(key)
             return {"ok": False, "error": d.get("code", "refused"), "message": d["message"], "sent": False}
         approved = tickets.take(key) or d["verdict"] == "allow"
-        return _mod("tools.draft").run(rt, draft_args, approved=approved)
+        return _mod("tools.draft").run(rt, draft_args, approved=approved,
+                                       automation_run=run.run_key() if d.get("automation") else "")
     return run_draft
 
 
@@ -443,13 +488,18 @@ def decide_build(rt, args: dict, run) -> dict:
         site = build._load(rt, str(args.get("run") or ""))["site"]
     except ValueError as e:
         return {"verdict": "block", "code": "bad_args", "message": str(e)}
-    d = decide_draft(rt, {"site": site, "action": "create", "title": "brand"}, run)
-    if d["verdict"] == "card":
-        colors = ", ".join(f"{c.get('name') or c.get('slug')} {c.get('color')}" for c in args.get("colors") or [])
-        d["message"] = (f"This stages brand colours on site {site} for the person's review (nothing changes live until "
-                        f"they apply it on the connector's review screen): {colors}; fonts {args.get('fonts') or {}}")
-        d["rule_key"] = f"wpbruecke:wp_build:{site}"
-    return d
+    reason = run.unattended_reason()
+    if reason:
+        return {"verdict": "block", "code": "unattended",
+                "message": f"Staging brand colours needs a person, and {reason}. Nothing was sent."}
+    try:
+        site_file = rt.site(site)
+    except Exception as e:
+        return {"verdict": "block", "code": "not_found", "message": str(e)}
+    refusal = rt.require(site_file, "build_write")
+    if refusal is not None:
+        return {"verdict": "block", "code": refusal.code, "message": refusal.message}
+    return {"verdict": "allow"}
 
 
 def _register_proof_seo_build(ctx, get_setting: SettingGetter, data_dir: Any, run_context) -> None:

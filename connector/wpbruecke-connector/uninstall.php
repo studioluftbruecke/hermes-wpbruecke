@@ -1,8 +1,8 @@
 <?php
 /**
- * Uninstall: remove the drafter role and every option the connector wrote.
+ * Uninstall: remove the reader and drafter roles and every option the connector wrote.
  *
- * Users who had only the drafter role keep their account but have no role afterwards.
+ * Users who had only one of these roles keep their account but have no role afterwards.
  *
  * @package WPBrueckeConnector
  */
@@ -12,9 +12,10 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 }
 
 /**
- * Remove the role and options on the current site.
+ * Remove the roles and options on the current site.
  */
 function wpbruecke_uninstall_site() {
+	remove_role( 'wpbruecke_reader' );
 	remove_role( 'wpbruecke_drafter' );
 	delete_option( 'wpbruecke_preview_secret' );
 	delete_option( 'wpbruecke_staged_brand' );

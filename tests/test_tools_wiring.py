@@ -1,7 +1,7 @@
 """Tool wiring for wp_proof, wp_seo and wp_build (the layers themselves are tested in their own files)."""
 import json
 
-from wpb_fakes import FakeWP, Settings, load_plugin, mod, secrets
+from wpb_fakes import FakeWP, Settings, create_paired, load_plugin, mod, secrets
 
 PW = secrets(WPBRUECKE_KEY1="pw pw pw")
 WPORG = {"wporg_fetch": lambda u: {"version": "1"}}
@@ -10,7 +10,7 @@ WPORG = {"wporg_fetch": lambda u: {"version": "1"}}
 def make(tmp_path, caps=None, **site):
     fake = FakeWP(user="hermes", caps=caps or {"edit_posts": True, "upload_files": True})
     rt = mod("runtime").Runtime(Settings(), PW, tmp_path, transport=fake, **WPORG)
-    rt.sites.create({"id": "s", "url": "https://test.example", "login": "hermes", "key_slot": 1, **site}, "person")
+    create_paired(rt, {"id": "s", "url": "https://test.example", "login": "hermes", "key_slot": 1, **site}, "person")
     return fake, rt
 
 

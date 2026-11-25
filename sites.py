@@ -4,24 +4,27 @@ Shape::
 
     id: test-wp                        # slug, also the file name sites/<id>.yaml
     url: https://test-wp.example       # the site's address
-    login: hermes-drafter              # WordPress user name behind the key slot
-    key_slot: 1                        # 1..12 -> WPBRUECKE_KEY<n> in the profile .env; 0 = public only
+    login: hermes                      # the group's WordPress user (login or email), from the settings
+    username: hermes                   # the user's name from users/me after the first good check
+    key_slot: 1                        # 1..16 = the settings group (WPBRUECKE_KEY<n>); 0 = public only
+    access: null                       # {level, role, caps_fingerprint, confirmed_at}, only the Confirm writes it
     connect_ip: ""                     # advanced: connect here, keep the host name for TLS (constraint 10)
     group: ""                          # fleet filter chip
     label: ""                          # display name; empty = the site's own title
-    publishing: off                    # off | confirm | schedule (F8)
-    never_publish_never_send: true     # the hard rule, on by default (A15)
-    agent_writes: ""                   # "" = the plugin setting; auto | always
     packs: {generatepress: false}
     proof: {widths: [1440, 768, 390], extra_hosts: []}
     memory: {tone: "", languages: [], do_not_touch: [], notes: ""}
     automations:                       # recurring drafts (F14, D18 a)
-      - {id: weekly-notes, kind: recurring_draft, schedule: "0 7 * * 1", prompt: "...", enabled: true}
+      - {id: weekly-notes, kind: recurring_draft, schedule: "0 7 * * 1", prompt: "...", enabled: true,
+         publish: false}
     gsc_property: ""                   # optional Search Console property (sc-domain:example.com or a URL prefix)
     cockpit_app: ""                    # optional Coolify app uuid: the site card links into Coolifybrücke
 
 Every save keeps a version in ``sites/<id>.history/<n>.yaml`` plus ``<n>.json`` (author, time,
-summary); the last ``KEEP_VERSIONS`` are kept. The file never holds a secret.
+summary); the last ``KEEP_VERSIONS`` are kept. The file never holds a secret. url, login and
+key_slot of a keyed site mirror its settings group (groups.sync). Two site files never share a host.
+A 0.1.0 file's ``publishing``, ``never_publish_never_send`` and ``agent_writes`` still load: they are
+handed to ``legacy_sink`` once (the migration keeps them for the page) and dropped on the next save.
 """
 from __future__ import annotations
 
@@ -29,21 +32,27 @@ import copy
 import ipaddress
 import json
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 from . import yamlish
 from .store import Store, StoreError, check_id, now_iso
 
 KEEP_VERSIONS = 20
-PUBLISHING = ("off", "confirm", "schedule")
-AGENT_WRITES = ("", "auto", "always")
+MAX_SLOT = 16
+LOGIN_MAX = 100
 DEFAULT_WIDTHS = [1440, 768, 390]
-AUTHORS = ("hermes", "person", "page", "cli")
+AUTHORS = ("hermes", "person", "page", "cli", "settings", "migration", "check")
+LEGACY_FIELDS = ("publishing", "never_publish_never_send", "agent_writes")
+LEVELS = ("read_public", "read", "drafts", "publish")
 # Fields that widen or redirect what the agent may do: an agent edit of these asks the user first
 # (hooks.py), and an unattended run may not change them at all.
-GUARDED_FIELDS = frozenset({"url", "login", "key_slot", "connect_ip", "publishing", "never_publish_never_send",
-                            "agent_writes", "automations"})
+GUARDED_FIELDS = frozenset({"url", "login", "key_slot", "connect_ip", "automations"})
+# A keyed site's url, login and key_slot come from its settings group; no tool or request body sets them.
+SETTINGS_FIELDS = frozenset({"url", "login", "key_slot"})
+# Written by WPBrücke itself: access by the page's Confirm, username by the connection check.
+SYSTEM_FIELDS = frozenset({"access", "username"})
+_FP_RE = re.compile(r"^[0-9a-f]{12}$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 _GSC_DOMAIN = re.compile(r"^sc-domain:[A-Za-z0-9.-]{1,253}$")
 _APP_RE = re.compile(r"^[a-z0-9]{8,40}$")
@@ -53,17 +62,21 @@ _SECRETISH = re.compile(r"(password|secret|token|app_?key|apikey)", re.I)
 
 HEADER = ("WPBrücke site file. Edit through the WPBrücke page or ask Hermes (wp_sites action=update);\n"
           "both keep a version with author and time. Never put a password here: key_slot names the\n"
-          "WPBRUECKE_KEY<n> field in Hermes' plugin settings.")
+          "Site N group in Hermes' plugin settings, which holds the address, user and password.")
 
 
 class SiteError(ValueError):
     pass
 
 
-def defaults(site_id: str = "", publishing: str = "off") -> dict:
+class DuplicateHost(SiteError):
+    pass
+
+
+def defaults(site_id: str = "") -> dict:
     return {
-        "id": site_id, "url": "", "login": "", "key_slot": 0, "connect_ip": "", "group": "", "label": "",
-        "publishing": publishing, "never_publish_never_send": True, "agent_writes": "",
+        "id": site_id, "url": "", "login": "", "username": "", "key_slot": 0, "access": None, "connect_ip": "",
+        "group": "", "label": "",
         "packs": {"generatepress": False},
         "proof": {"widths": list(DEFAULT_WIDTHS), "extra_hosts": []},
         "memory": {"tone": "", "languages": [], "do_not_touch": [], "notes": ""},
@@ -107,14 +120,29 @@ def normalise_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc.lower()}{path}"
 
 
-def validate(raw: dict, publishing_default: str = "off") -> dict:
+def _access(value: Any) -> Optional[dict]:
+    if value in (None, "", {}):
+        return None
+    if not isinstance(value, dict) or set(value) - {"level", "role", "caps_fingerprint", "confirmed_at"}:
+        raise SiteError("access is {level, role, caps_fingerprint, confirmed_at} or null")
+    level = str(value.get("level") or "")
+    if level not in LEVELS:
+        raise SiteError(f"access.level must be one of {', '.join(LEVELS)}")
+    fp = str(value.get("caps_fingerprint") or "")
+    if not _FP_RE.match(fp):
+        raise SiteError("access.caps_fingerprint must be 12 hex characters")
+    return {"level": level, "role": str(value.get("role") or "")[:60], "caps_fingerprint": fp,
+            "confirmed_at": str(value.get("confirmed_at") or "")[:40]}
+
+
+def validate(raw: dict) -> dict:
     """A complete, checked site dict, or SiteError naming the first problem."""
     if not isinstance(raw, dict):
         raise SiteError("a site must be a mapping")
     for key in raw:
         if _SECRETISH.search(str(key)):
             raise SiteError(f"{key}: a site file never holds a secret; use key_slot and the plugin settings")
-    site = defaults(publishing=publishing_default)
+    site = defaults()
     unknown = set(raw) - set(site)
     if unknown:
         raise SiteError(f"unknown field(s): {', '.join(sorted(unknown))}")
@@ -123,16 +151,16 @@ def validate(raw: dict, publishing_default: str = "off") -> dict:
     except StoreError as e:
         raise SiteError(str(e)) from None
     site["url"] = normalise_url(str(raw.get("url") or ""))
-    site["login"] = str(raw.get("login") or "").strip()[:60]
+    site["login"] = str(raw.get("login") or "").strip()[:LOGIN_MAX]
+    site["username"] = str(raw.get("username") or "").strip()[:LOGIN_MAX]
     try:
         slot = int(raw.get("key_slot") or 0)
     except (TypeError, ValueError):
-        raise SiteError("key_slot must be a number from 0 (public only) to 12") from None
-    if not 0 <= slot <= 12:
-        raise SiteError("key_slot must be a number from 0 (public only) to 12")
-    if slot and not site["login"]:
-        raise SiteError("login (the WordPress user name of the key) is needed when key_slot is set")
+        raise SiteError(f"key_slot must be a number from 0 (public only) to {MAX_SLOT}") from None
+    if not 0 <= slot <= MAX_SLOT:
+        raise SiteError(f"key_slot must be a number from 0 (public only) to {MAX_SLOT}")
     site["key_slot"] = slot
+    site["access"] = _access(raw.get("access"))
     ip = str(raw.get("connect_ip") or "").strip()
     if ip:
         try:
@@ -150,15 +178,6 @@ def validate(raw: dict, publishing_default: str = "off") -> dict:
     if app and not _APP_RE.match(app):
         raise SiteError("cockpit_app is a Coolify app uuid (letters and digits)")
     site["cockpit_app"] = app
-    pub = str(raw.get("publishing", site["publishing"]) or "off").strip().lower()
-    if pub not in PUBLISHING:
-        raise SiteError(f"publishing must be one of {', '.join(PUBLISHING)}")
-    site["publishing"] = pub
-    site["never_publish_never_send"] = _bool(raw.get("never_publish_never_send", True), "never_publish_never_send")
-    aw = str(raw.get("agent_writes") or "").strip().lower()
-    if aw not in AGENT_WRITES:
-        raise SiteError("agent_writes must be auto, always or empty (the plugin setting)")
-    site["agent_writes"] = aw
     packs = raw.get("packs") or {}
     if not isinstance(packs, dict) or set(packs) - {"generatepress"}:
         raise SiteError("packs knows only generatepress: true|false")
@@ -202,7 +221,7 @@ def validate(raw: dict, publishing_default: str = "off") -> dict:
         kind = str(a.get("kind") or "recurring_draft")
         if kind != "recurring_draft":
             raise SiteError("automation kind: only recurring_draft exists")
-        extra = set(a) - {"id", "kind", "schedule", "prompt", "post_type", "enabled", "job_id"}
+        extra = set(a) - {"id", "kind", "schedule", "prompt", "post_type", "enabled", "job_id", "publish"}
         if extra:
             raise SiteError(f"automation {aid}: unknown field(s) {', '.join(sorted(extra))}")
         ptype = str(a.get("post_type") or "post")
@@ -211,6 +230,7 @@ def validate(raw: dict, publishing_default: str = "off") -> dict:
         clean.append({"id": aid, "kind": kind, "schedule": str(a.get("schedule") or "")[:60],
                       "prompt": str(a.get("prompt") or "")[:4000], "post_type": ptype,
                       "enabled": _bool(a.get("enabled", True), "automation enabled"),
+                      "publish": _bool(a.get("publish", False), "automation publish"),
                       "job_id": str(a.get("job_id") or "")[:64]})
     site["automations"] = clean
     return site
@@ -251,9 +271,9 @@ def diff(old: Optional[dict], new: dict) -> list:
 
 
 class SiteStore:
-    def __init__(self, store: Store, publishing_default: str = "off") -> None:
+    def __init__(self, store: Store, legacy_sink: Optional[Callable[[str, dict], None]] = None) -> None:
         self.store = store
-        self.publishing_default = publishing_default
+        self.legacy_sink = legacy_sink
 
     def _file(self, site_id: str):
         return self.store.path("sites", f"{check_id(site_id, 'site id')}.yaml")
@@ -272,7 +292,10 @@ class SiteStore:
             return None
         data = yamlish.load(path.read_text(encoding="utf-8"))
         data.setdefault("id", site_id)
-        return validate(data, self.publishing_default)
+        legacy = {k: data.pop(k) for k in LEGACY_FIELDS if k in data}
+        if legacy and self.legacy_sink is not None:
+            self.legacy_sink(site_id, legacy)
+        return validate(data)
 
     def all(self) -> list:
         out = []
@@ -306,22 +329,37 @@ class SiteStore:
                 (hist / f"{old}.{ext}").unlink(missing_ok=True)
         return {"version": version, "author": author}
 
+    def _check_host(self, site: dict) -> None:
+        mine = host_of(site)
+        for other in self.all():
+            if other.get("id") != site["id"] and "error" not in other and host_of(other) == mine:
+                raise DuplicateHost(f"site {other['id']} already uses {mine}; one site file per host")
+
     def create(self, raw: dict, author: str) -> dict:
-        site = validate(raw, self.publishing_default)
+        site = validate(raw)
         with self.store.lock("sites"):
             if self._file(site["id"]).exists():
                 raise SiteError(f"site {site['id']} exists; use update")
+            self._check_host(site)
             saved = self._save(site, author, "created")
         return {"site": site, "diff": diff(None, site), **saved}
 
-    def update(self, site_id: str, changes: dict, author: str, preview: bool = False) -> dict:
+    def update(self, site_id: str, changes: dict, author: str, preview: bool = False, confirm: bool = False) -> dict:
+        """``confirm=True`` is the Confirm route's write; no other caller may change ``access``."""
         if "id" in (changes or {}) and changes["id"] != site_id:
             raise SiteError("the id of a site cannot change; create a new site instead")
         with self.store.lock("sites"):
             old = self.get(site_id)
             if old is None:
                 raise SiteError(f"no site {site_id}")
-            new = validate(merge(old, changes), self.publishing_default)
+            new = validate(merge(old, {k: v for k, v in (changes or {}).items() if k != "access"}))
+            if "access" in (changes or {}):
+                wanted = _access(changes["access"])
+                if wanted != old.get("access") and not confirm:
+                    raise SiteError("access is written only by Confirm on the WPBrücke page")
+                new["access"] = wanted
+            if host_of(new) != host_of(old):
+                self._check_host(new)
             lines = diff(old, new)
             if preview or not lines:
                 return {"site": new, "diff": lines, "preview": preview, "changed": bool(lines)}
@@ -333,7 +371,14 @@ class SiteStore:
         path = hist / f"{int(version)}.yaml"
         if not path.exists():
             raise SiteError(f"site {site_id} has no version {version}")
-        data = validate(yamlish.load(path.read_text(encoding="utf-8")), self.publishing_default)
+        data = yamlish.load(path.read_text(encoding="utf-8"))
+        for k in LEGACY_FIELDS:
+            data.pop(k, None)
+        data = validate(data)
+        current = self.get(site_id)
+        data["access"] = (current or {}).get("access")  # a restore never brings back an old confirmation
+        if current and current.get("key_slot"):
+            data.update({k: current[k] for k in SETTINGS_FIELDS})
         return self.update(site_id, data, author)
 
     def delete(self, site_id: str) -> bool:

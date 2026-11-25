@@ -1,6 +1,7 @@
 """WordPressClient: core REST over HTTPS with an application password, nothing else.
 
-- Basic auth from the site's key slot; the key is never logged, printed or put in an error.
+- Basic auth from the site's settings group; the key is never logged, printed or put in an error, and
+  never sent over plain http except to this computer (loopback).
 - ``connect_ip`` (PLAN constraint 10): the TCP connection goes to that address while TLS and the
   Host header keep the real host name (SNI), for sites reachable only through a VPN.
 - Error kinds: ``auth`` (401), ``forbidden`` (403), ``not_found`` (404), ``rate_limited`` (429, with
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import http.client
+import ipaddress
 import json
 import socket
 import ssl
@@ -66,7 +68,24 @@ class Response:
         return None
 
 
+def is_loopback(host: str) -> bool:
+    host = (host or "").strip("[]").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def may_carry_key(url: str) -> bool:
+    """A key goes over https, or over http to this computer only."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" or (parsed.scheme == "http" and is_loopback(parsed.hostname or ""))
+
+
 def _stdlib_transport(connect_ip: str = ""):
+    """http.client never follows a redirect: a 3xx comes back as it is, so a key never crosses one."""
     ctx = ssl.create_default_context()
 
     def send(method: str, url: str, headers: dict, body: Optional[bytes], timeout: float):
@@ -103,7 +122,8 @@ class WordPressClient:
         self.url = url.rstrip("/")
         self.host = urlparse(self.url).hostname or ""
         self.login = login
-        self._auth = ("Basic " + base64.b64encode(f"{login}:{password}".encode()).decode()) if (login and password) else None
+        carry = bool(login and password) and may_carry_key(self.url)
+        self._auth = ("Basic " + base64.b64encode(f"{login}:{password}".encode()).decode()) if carry else None
         self.connect_ip = connect_ip
         self.timeout = timeout
         self._send = transport or _stdlib_transport(connect_ip)

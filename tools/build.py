@@ -129,6 +129,9 @@ def handle(rt: Runtime, args: dict, run_draft: Optional[Callable[[dict], dict]] 
             colors = [c for c in args.get("colors") or [] if isinstance(c, dict)]
             run["brand"] = {"colors": colors, "fonts": args.get("fonts") or run.get("brand", {}).get("fonts") or {}}
             site = rt.site(run["site"])
+            refusal = rt.require(site, "build_write")
+            if refusal is not None:
+                return refusal.to_dict()
             facts = rt.site_facts(site)
             note = "brand saved in the build run"
             if facts.get("connector") or facts.get("connector_ns"):
