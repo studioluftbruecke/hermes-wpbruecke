@@ -1,0 +1,2207 @@
+{
+ "items": [
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/core/get-site-info",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/core/get-site-info/run"
+     }
+    ]
+   },
+   "category": "site",
+   "description": "Returns site information configured in WordPress. By default returns all fields, or optionally a filtered subset.",
+   "input_schema": {
+    "additionalProperties": false,
+    "default": {},
+    "properties": {
+     "fields": {
+      "description": "Optional: Limit response to specific fields. If omitted, all fields are returned.",
+      "items": {
+       "enum": [
+        "name",
+        "description",
+        "url",
+        "wpurl",
+        "admin_email",
+        "charset",
+        "language",
+        "version"
+       ],
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "type": "object"
+   },
+   "label": "Get Site Information",
+   "meta": {
+    "annotations": {
+     "destructive": false,
+     "idempotent": true,
+     "readonly": true
+    },
+    "public": true,
+    "show_in_rest": true
+   },
+   "name": "core/get-site-info",
+   "output_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "admin_email": {
+      "description": "The site administrator email address.",
+      "title": "Administration Email Address",
+      "type": "string"
+     },
+     "charset": {
+      "description": "The site character encoding.",
+      "title": "Site Charset",
+      "type": "string"
+     },
+     "description": {
+      "description": "The site tagline.",
+      "title": "Tagline",
+      "type": "string"
+     },
+     "language": {
+      "description": "The site locale in dash form (e.g. en-US).",
+      "title": "Site Language",
+      "type": "string"
+     },
+     "name": {
+      "description": "The site title.",
+      "title": "Site Title",
+      "type": "string"
+     },
+     "url": {
+      "description": "The public URL where visitors access the site. May differ from the WordPress installation URL.",
+      "title": "Site Address (URL)",
+      "type": "string"
+     },
+     "version": {
+      "description": "The WordPress core version running on this site.",
+      "title": "WordPress Version",
+      "type": "string"
+     },
+     "wpurl": {
+      "description": "The URL where WordPress core files are served. May differ from the public site URL.",
+      "title": "WordPress Address (URL)",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/woocommerce/products-query",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/woocommerce/products-query/run"
+     }
+    ]
+   },
+   "category": "woocommerce",
+   "description": "Find products by ID or common catalog filters.",
+   "input_schema": {
+    "additionalProperties": false,
+    "default": {},
+    "properties": {
+     "id": {
+      "minimum": 1,
+      "type": "integer"
+     },
+     "page": {
+      "default": 1,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "per_page": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "product_type_alias": {
+      "description": "Filter by supported agent-facing product type alias. physical maps to simple shippable, non-downloadable products; virtual maps to simple non-shipping, non-downloadable products; digital maps to simple virtual/downloadable products; affiliate maps to the external product type; grouped maps to grouped.",
+      "enum": [
+       "physical",
+       "virtual",
+       "digital",
+       "affiliate",
+       "grouped"
+      ],
+      "type": "string"
+     },
+     "search": {
+      "type": "string"
+     },
+     "sku": {
+      "description": "Limit results to products with SKUs that partially match this string. Use * to match products with any non-empty SKU.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "future",
+       "trash",
+       "draft",
+       "pending",
+       "private",
+       "publish"
+      ],
+      "type": "string"
+     },
+     "stock_status": {
+      "enum": [
+       "instock",
+       "outofstock",
+       "onbackorder"
+      ],
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "label": "Query products",
+   "meta": {
+    "annotations": {
+     "destructive": false,
+     "idempotent": true,
+     "readonly": true
+    },
+    "mcp": {
+     "public": true,
+     "type": "tool"
+    },
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "woocommerce/products-query",
+   "output_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "page": {
+      "description": "Current result page.",
+      "type": "integer"
+     },
+     "per_page": {
+      "description": "Maximum number of items requested per page.",
+      "type": "integer"
+     },
+     "products": {
+      "description": "Returned products for the current page.",
+      "items": {
+       "additionalProperties": false,
+       "properties": {
+        "button_text": {
+         "description": "Button text for external products.",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "currency": {
+         "enum": [
+          "AED",
+          "AFN",
+          "ALL",
+          "AMD",
+          "ANG",
+          "AOA",
+          "ARS",
+          "AUD",
+          "AWG",
+          "AZN",
+          "BAM",
+          "BBD",
+          "BDT",
+          "BGN",
+          "BHD",
+          "BIF",
+          "BMD",
+          "BND",
+          "BOB",
+          "BRL",
+          "BSD",
+          "BTC",
+          "BTN",
+          "BWP",
+          "BYR",
+          "BYN",
+          "BZD",
+          "CAD",
+          "CDF",
+          "CHF",
+          "CHW",
+          "CLP",
+          "CNY",
+          "COP",
+          "CRC",
+          "CUC",
+          "CUP",
+          "CVE",
+          "CZK",
+          "DJF",
+          "…"
+         ],
+         "type": "string"
+        },
+        "currency_symbol": {
+         "type": "string"
+        },
+        "date_created": {
+         "format": "date-time",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "date_created_gmt": {
+         "format": "date-time",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "date_modified": {
+         "format": "date-time",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "date_modified_gmt": {
+         "format": "date-time",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "downloadable": {
+         "type": "boolean"
+        },
+        "external_url": {
+         "description": "External product URL for external products.",
+         "format": "uri",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "grouped_products": {
+         "description": "Product IDs included as children of a grouped product.",
+         "items": "…",
+         "type": "array"
+        },
+        "id": {
+         "type": "integer"
+        },
+        "manage_stock": {
+         "type": "boolean"
+        },
+        "name": {
+         "type": "string"
+        },
+        "permalink": {
+         "description": "Product permalink, or null when no public permalink is available.",
+         "format": "uri",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "price": {
+         "description": "Decimal price as a string, without a currency symbol.",
+         "type": "string"
+        },
+        "regular_price": {
+         "description": "Decimal price as a string, without a currency symbol.",
+         "type": "string"
+        },
+        "sale_price": {
+         "description": "Decimal price as a string, without a currency symbol.",
+         "type": "string"
+        },
+        "sku": {
+         "type": "string"
+        },
+        "slug": {
+         "type": "string"
+        },
+        "status": {
+         "enum": [
+          "draft",
+          "pending",
+          "private",
+          "publish",
+          "future",
+          "auto-draft",
+          "trash"
+         ],
+         "type": "string"
+        },
+        "stock_quantity": {
+         "description": "Current stock quantity, or null when no stock quantity is set.",
+         "type": [
+          "integer",
+          "null"
+         ]
+        },
+        "stock_status": {
+         "enum": [
+          "instock",
+          "outofstock",
+          "onbackorder"
+         ],
+         "type": "string"
+        },
+        "type": {
+         "description": "Internal product type slug, such as simple, external, grouped, or variable.",
+         "enum": [
+          "simple",
+          "grouped",
+          "external",
+          "variable"
+         ],
+         "type": "string"
+        },
+        "virtual": {
+         "type": "boolean"
+        }
+       },
+       "type": "object"
+      },
+      "type": "array"
+     },
+     "total_pages": {
+      "description": "Total number of result pages available for the current query.",
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/woocommerce/product-create",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/woocommerce/product-create/run"
+     }
+    ]
+   },
+   "category": "woocommerce",
+   "description": "Create a product using supported catalog fields.",
+   "input_schema": {
+    "oneOf": [
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "default": "physical",
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "physical"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Available stock quantity when product-level stock management is used.",
+        "type": "integer"
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "name"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "virtual"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Available stock quantity when product-level stock management is used.",
+        "type": "integer"
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "digital"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Available stock quantity when product-level stock management is used.",
+        "type": "integer"
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "button_text": {
+        "description": "Button text for affiliate products.",
+        "type": "string"
+       },
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "external_url": {
+        "description": "External destination URL for affiliate products.",
+        "format": "uri",
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "affiliate"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "grouped_products": {
+        "description": "Product IDs to include as children of a grouped product.",
+        "items": {
+         "minimum": 1,
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "grouped"
+        ],
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "product_type_alias"
+      ],
+      "type": "object"
+     }
+    ],
+    "type": "object"
+   },
+   "label": "Create product",
+   "meta": {
+    "annotations": {
+     "destructive": false,
+     "idempotent": false,
+     "readonly": false
+    },
+    "mcp": {
+     "public": true,
+     "type": "tool"
+    },
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "woocommerce/product-create",
+   "output_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "product": {
+      "additionalProperties": false,
+      "properties": {
+       "button_text": {
+        "description": "Button text for external products.",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "currency": {
+        "enum": [
+         "AED",
+         "AFN",
+         "ALL",
+         "AMD",
+         "ANG",
+         "AOA",
+         "ARS",
+         "AUD",
+         "AWG",
+         "AZN",
+         "BAM",
+         "BBD",
+         "BDT",
+         "BGN",
+         "BHD",
+         "BIF",
+         "BMD",
+         "BND",
+         "BOB",
+         "BRL",
+         "BSD",
+         "BTC",
+         "BTN",
+         "BWP",
+         "BYR",
+         "BYN",
+         "BZD",
+         "CAD",
+         "CDF",
+         "CHF",
+         "CHW",
+         "CLP",
+         "CNY",
+         "COP",
+         "CRC",
+         "CUC",
+         "CUP",
+         "CVE",
+         "CZK",
+         "DJF",
+         "…"
+        ],
+        "type": "string"
+       },
+       "currency_symbol": {
+        "type": "string"
+       },
+       "date_created": {
+        "format": "date-time",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "date_created_gmt": {
+        "format": "date-time",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "date_modified": {
+        "format": "date-time",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "date_modified_gmt": {
+        "format": "date-time",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "downloadable": {
+        "type": "boolean"
+       },
+       "external_url": {
+        "description": "External product URL for external products.",
+        "format": "uri",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "grouped_products": {
+        "description": "Product IDs included as children of a grouped product.",
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       "id": {
+        "type": "integer"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "permalink": {
+        "description": "Product permalink, or null when no public permalink is available.",
+        "format": "uri",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "price": {
+        "description": "Decimal price as a string, without a currency symbol.",
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol.",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "slug": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future",
+         "auto-draft",
+         "trash"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Current stock quantity, or null when no stock quantity is set.",
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       },
+       "type": {
+        "description": "Internal product type slug, such as simple, external, grouped, or variable.",
+        "enum": [
+         "simple",
+         "grouped",
+         "external",
+         "variable"
+        ],
+        "type": "string"
+       },
+       "virtual": {
+        "type": "boolean"
+       }
+      },
+      "type": "object"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/woocommerce/product-delete",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/woocommerce/product-delete/run"
+     }
+    ]
+   },
+   "category": "woocommerce",
+   "description": "Delete, trash, or restore a product.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "force": {
+      "default": false,
+      "description": "Permanently delete the product. Defaults to false, which moves the product to trash.",
+      "type": "boolean"
+     },
+     "id": {
+      "minimum": 1,
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "type": "object"
+   },
+   "label": "Delete product",
+   "meta": {
+    "annotations": {
+     "destructive": true,
+     "idempotent": true,
+     "readonly": false
+    },
+    "mcp": {
+     "public": true,
+     "type": "tool"
+    },
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "woocommerce/product-delete",
+   "output_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "deleted": {
+      "type": "boolean"
+     },
+     "id": {
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/elementor/clear-cache",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/elementor/clear-cache/run"
+     }
+    ]
+   },
+   "category": "elementor",
+   "description": "Clears Elementor's outdated CSS files and cached data in the database (rendered HTML, JS/CSS assets, etc.), the same as WP Admin → Elementor → Tools → \"Clear Files & Data\". Elementor regenerates them the next time someone visits a page on the site, so the first load of each page can be slower. Needs no input.\n\nOnly call it when the user asks to clear the Elementor cache, or after they agree to your suggestion to clear it. Never call it on your own. Suggest it when you are troubleshooting what looks like stale output: styles or content on the front end that don't match the editor, missing or ou…",
+   "input_schema": {
+    "default": {},
+    "type": "object"
+   },
+   "label": "Clear Elementor Cache",
+   "meta": {
+    "annotations": {
+     "destructive": true,
+     "idempotent": true,
+     "readonly": false
+    },
+    "mcp": {
+     "public": true
+    },
+    "mutates_page": false,
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "elementor/clear-cache",
+   "output_schema": {
+    "properties": {
+     "llm_instructions": {
+      "description": "Mandatory next step: follow this text and include it in your reply to the user.",
+      "type": "string"
+     },
+     "success": {
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/fluent-crm/get-crm-context",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/fluent-crm/get-crm-context/run"
+     }
+    ]
+   },
+   "category": "fluent-crm",
+   "description": "Returns who you are and your permissions, the site (timezone_name, current_time), the rules to follow and CRM counts: call it first. Request more sections with include. segments caps at 50 tags and 50 lists; use list-tags / list-lists for full registries.",
+   "input_schema": {
+    "properties": {
+     "include": {
+      "description": "Omitted = overview; [] = identity/site only; explicit = exactly those; [\"all\"] = every section you can access. safety lists which tools to confirm with the user first; email_blocks lists the block editor blocks an email body may use, with rules and examples. Unknown names rejected unless `all` is present.",
+      "items": {
+       "enum": [
+        "overview",
+        "stats",
+        "segments",
+        "enums",
+        "sender",
+        "custom_fields",
+        "smart_codes",
+        "automation_catalog",
+        "safety",
+        "rate_hints",
+        "capabilities",
+        "guidelines",
+        "email_blocks",
+        "all"
+       ],
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "include_segment_counts": {
+      "default": false,
+      "description": "Add subscribers_count to segments rows (per-row pivot count). For one tag/list's exact size, read list-contacts `total`.",
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "label": "Get CRM Context",
+   "meta": {
+    "annotations": {
+     "destructive": false,
+     "idempotent": true,
+     "openWorldHint": false,
+     "readonly": true
+    },
+    "mcp": {
+     "public": true
+    },
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "fluent-crm/get-crm-context",
+   "output_schema": []
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/fluent-crm/list-campaigns",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/fluent-crm/list-campaigns/run"
+     }
+    ]
+   },
+   "category": "fluent-crm",
+   "description": "List email campaigns with status and send times; stats with include_stats. One-off send-email-to-contact rows are excluded unless include_one_offs=true (unified \"recently sent\" view).",
+   "input_schema": {
+    "properties": {
+     "include_one_offs": {
+      "default": false,
+      "description": "Also return the per-recipient rows created by send-email-to-contact.",
+      "type": "boolean"
+     },
+     "include_stats": {
+      "default": false,
+      "description": "Add engagement stats; costs aggregate queries per row.",
+      "type": "boolean"
+     },
+     "page": {
+      "default": 1,
+      "type": "integer"
+     },
+     "per_page": {
+      "default": 15,
+      "description": "Max 100.",
+      "type": "integer"
+     },
+     "search": {
+      "description": "Matches title.",
+      "type": "string"
+     },
+     "sort_by": {
+      "default": "created_at",
+      "enum": [
+       "id",
+       "created_at",
+       "updated_at",
+       "scheduled_at"
+      ],
+      "type": "string"
+     },
+     "sort_type": {
+      "default": "DESC",
+      "enum": [
+       "ASC",
+       "DESC"
+      ],
+      "type": "string"
+     },
+     "statuses": {
+      "description": "See get-crm-context.enums.campaign_statuses; other values are rejected. With include_one_offs=true, get-crm-context.enums.one_off_statuses is the only way to match one-off rows (descriptive, not a lifecycle stage).",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "type": "object"
+   },
+   "label": "List Campaigns",
+   "meta": {
+    "annotations": {
+     "destructive": false,
+     "idempotent": true,
+     "openWorldHint": false,
+     "readonly": true
+    },
+    "mcp": {
+     "public": true
+    },
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "fluent-crm/list-campaigns",
+   "output_schema": []
+  },
+  {
+   "_links": {
+    "collection": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities"
+     }
+    ],
+    "self": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/fluent-crm/change-campaign-status",
+      "targetHints": {
+       "allow": [
+        "GET"
+       ]
+      }
+     }
+    ],
+    "wp:action-run": [
+     {
+      "href": "https://test.example/wp-json/wp-abilities/v1/abilities/fluent-crm/change-campaign-status/run"
+     }
+    ]
+   },
+   "category": "fluent-crm",
+   "description": "Schedule (send), unschedule, pause, resume, duplicate or delete a campaign. schedule (draft only, needs recipients; authorizes immediate or scheduled delivery) and delete (needs fcrm_manage_email_delete) are destructive. unschedule (scheduled/pending-scheduled/processing) reverts to draft, clears scheduled_at. pause/resume only mid-send (working↔paused). One-off rows: delete only.",
+   "input_schema": {
+    "properties": {
+     "action": {
+      "enum": [
+       "schedule",
+       "unschedule",
+       "pause",
+       "resume",
+       "duplicate",
+       "delete"
+      ],
+      "type": "string"
+     },
+     "campaign_id": {
+      "type": "integer"
+     },
+     "new_title": {
+      "description": "duplicate only: overrides the \"[Duplicate] X\" title.",
+      "type": "string"
+     },
+     "schedule_range": {
+      "description": "Required for sending_type=range_schedule: [start, end], same formats; end after start.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "scheduled_at": {
+      "description": "Required for sending_type=schedule. ISO 8601 with offset, or \"YYYY-MM-DD HH:MM:SS\" in site time. Must be at least 60 seconds ahead.",
+      "type": "string"
+     },
+     "sending_type": {
+      "description": "Default \"schedule\" if scheduled_at is set, else \"instant\".",
+      "enum": [
+       "instant",
+       "schedule",
+       "range_schedule"
+      ],
+      "type": "string"
+     }
+    },
+    "required": [
+     "campaign_id",
+     "action"
+    ],
+    "type": "object"
+   },
+   "label": "Change Campaign Status",
+   "meta": {
+    "annotations": {
+     "destructive": true,
+     "idempotent": false,
+     "openWorldHint": true,
+     "readonly": false
+    },
+    "mcp": {
+     "public": true
+    },
+    "public": false,
+    "show_in_rest": true
+   },
+   "name": "fluent-crm/change-campaign-status",
+   "output_schema": []
+  }
+ ],
+ "names": [
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "site",
+   "label": "Get Site Information",
+   "name": "core/get-site-info"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "user",
+   "label": "Get User Information",
+   "name": "core/get-user-info"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "site",
+   "label": "Get Environment Info",
+   "name": "core/get-environment-info"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "woocommerce",
+   "label": "Query orders",
+   "name": "woocommerce/orders-query"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "woocommerce",
+   "label": "Add order note",
+   "name": "woocommerce/order-add-note"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "woocommerce",
+   "label": "Query order notes",
+   "name": "woocommerce/order-notes-query"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "woocommerce",
+   "label": "Update order status",
+   "name": "woocommerce/order-update-status"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "woocommerce",
+   "label": "Query products",
+   "name": "woocommerce/products-query"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "woocommerce",
+   "label": "Create product",
+   "name": "woocommerce/product-create"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "woocommerce",
+   "label": "Delete product",
+   "name": "woocommerce/product-delete"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "woocommerce",
+   "label": "Update product",
+   "name": "woocommerce/product-update"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "wpbruecke",
+   "label": "WPBrücke site facts",
+   "name": "wpbruecke/site-facts"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "wpbruecke",
+   "label": "GeneratePress brand",
+   "name": "wpbruecke/gp-brand-get"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "wpbruecke",
+   "label": "Stage a GeneratePress brand",
+   "name": "wpbruecke/gp-brand-stage"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Get Elementor Page Structure",
+   "name": "elementor/get-page-structure"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Update Elementor Page Settings",
+   "name": "elementor/update-page-settings"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Create Elementor Page",
+   "name": "elementor/create-page"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Create Elementor Public Preview Link",
+   "name": "elementor/create-preview-link"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Publish Elementor Document",
+   "name": "elementor/publish-document"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "Style Best Practices",
+   "name": "elementor/style-best-practices"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "WordPress Best Practices",
+   "name": "elementor/wordpress-best-practices"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Global Variable",
+   "name": "elementor/manage-global-variable"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Global Classes",
+   "name": "elementor/manage-classes"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Default Styles (Site-Wide)",
+   "name": "elementor/manage-default-styles"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Get Default Styles",
+   "name": "elementor/get-default-styles"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Reorder Global Classes",
+   "name": "elementor/reorder-classes"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "Manage Global Variable Guide",
+   "name": "elementor/manage-global-variable-guide"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Get Elementor Widget Schema",
+   "name": "elementor/get-widget-schemas"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "List Elementor Widget Schemas",
+   "name": "elementor/list-widget-schemas"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "List Elementor Dynamic Tags",
+   "name": "elementor/list-dynamic-tags"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Build Composition",
+   "name": "elementor/build-composition"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Elements",
+   "name": "elementor/manage-elements"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "Global Classes",
+   "name": "elementor/global-classes-resource"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "List Media Library Assets",
+   "name": "elementor/list-assets"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Find Icons",
+   "name": "elementor/find-icons"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "Global Variables",
+   "name": "elementor/global-variables-resource"
+  },
+  {
+   "annotations": {
+    "destructive": null,
+    "idempotent": null,
+    "readonly": null
+   },
+   "category": "elementor",
+   "label": "Interactions Schema",
+   "name": "elementor/interactions-schema-resource"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "List Elementor Resources",
+   "name": "elementor/list-resources"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Read Elementor Resource",
+   "name": "elementor/read-resource"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "List Elementor Components",
+   "name": "elementor/list-components"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Elementor Component",
+   "name": "elementor/manage-component"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "List WordPress Posts",
+   "name": "elementor/list-posts"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Get Elementor System Info",
+   "name": "elementor/get-system-info"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Enable Agent Ready",
+   "name": "elementor/enable-agent-ready"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Agent Ready scan",
+   "name": "elementor/agent-ready-scan"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Clear Elementor Cache",
+   "name": "elementor/clear-cache"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Get Elementor License Status",
+   "name": "elementor/get-license-status"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "List Elementor Experiments",
+   "name": "elementor/list-experiments"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Elementor Experiments",
+   "name": "elementor/manage-experiments"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Upload Media by URL",
+   "name": "elementor/upload-media"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Request One-Time Media Upload",
+   "name": "elementor/request-media-upload"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "readonly": false
+   },
+   "category": "elementor",
+   "label": "Manage Elementor Revisions",
+   "name": "elementor/manage-revisions"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Manage Elementor Site Parts",
+   "name": "elementor/manage-site-parts"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Manage Form Submissions",
+   "name": "elementor/manage-form-submissions"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "readonly": true
+   },
+   "category": "elementor",
+   "label": "Manage WooCommerce Settings",
+   "name": "elementor/manage-woocommerce-settings"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Get CRM Context",
+   "name": "fluent-crm/get-crm-context"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "List Contacts",
+   "name": "fluent-crm/list-contacts"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Get Contact Filter Schema",
+   "name": "fluent-crm/get-contact-filter-schema"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Get Contact",
+   "name": "fluent-crm/get-contact"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "List Tags",
+   "name": "fluent-crm/list-tags"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "List Contact Lists",
+   "name": "fluent-crm/list-lists"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "List Campaigns",
+   "name": "fluent-crm/list-campaigns"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Get Campaign",
+   "name": "fluent-crm/get-campaign"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "List Automations",
+   "name": "fluent-crm/list-automations"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "List Funnel Subscribers",
+   "name": "fluent-crm/list-funnel-subscribers"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Get Automation",
+   "name": "fluent-crm/get-automation"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Create or Update Contact",
+   "name": "fluent-crm/upsert-contact"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Bulk Create or Update Contacts",
+   "name": "fluent-crm/bulk-upsert-contacts"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Delete Contact",
+   "name": "fluent-crm/delete-contact"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Apply Tags/Lists Across Contacts",
+   "name": "fluent-crm/apply-tags-lists-to-contacts"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Manage Tag",
+   "name": "fluent-crm/manage-tag"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Manage List",
+   "name": "fluent-crm/manage-list"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Delete Contact Note",
+   "name": "fluent-crm/delete-contact-note"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "openWorldHint": false,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Add Contact Note",
+   "name": "fluent-crm/add-contact-note"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Render Email Preview",
+   "name": "fluent-crm/render-email-preview"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Send Test Email",
+   "name": "fluent-crm/send-test-email"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Send Email to Contact",
+   "name": "fluent-crm/send-email-to-contact"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": false,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Create or Update Campaign",
+   "name": "fluent-crm/upsert-campaign"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Change Campaign Status",
+   "name": "fluent-crm/change-campaign-status"
+  },
+  {
+   "annotations": {
+    "destructive": true,
+    "idempotent": false,
+    "openWorldHint": true,
+    "readonly": false
+   },
+   "category": "fluent-crm",
+   "label": "Update Funnel Subscriber",
+   "name": "fluent-crm/update-funnel-subscriber"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Weekly CRM report",
+   "name": "fluent-crm/weekly-report"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Explain an automation",
+   "name": "fluent-crm/explain-automation"
+  },
+  {
+   "annotations": {
+    "destructive": false,
+    "idempotent": true,
+    "openWorldHint": false,
+    "readonly": true
+   },
+   "category": "fluent-crm",
+   "label": "Campaign post-mortem",
+   "name": "fluent-crm/campaign-post-mortem"
+  }
+ ],
+ "recorded": "harness full boot 2026-11-26: WordPress 7.1.5, WooCommerce 11.3.1, FluentCRM 3.3.5, Elementor 4.4.2, as the shop publisher, GET /wp-json/wp-abilities/v1/abilities?per_page=100",
+ "status": 200,
+ "x_wp_total": "83",
+ "x_wp_totalpages": "1"
+}

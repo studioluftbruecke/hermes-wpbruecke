@@ -76,7 +76,7 @@ def test_build_page_becomes_a_core_block_draft_on_the_desk(tmp_path):
     early = mod("tools.build").handle(rt, {"action": "build_page", "run": rid, "slug": "home", "title": "Home",
                                            "sections": [{"type": "hero", "heading": "x"}]}, run_draft=lambda a: 1 / 0)
     assert not early["ok"] and early["error"] == "state"  # refused before any draft is written
-    gp = mod("gp.build")
+    gp = mod("packs.generatepress.build")
     run = start["run"]
     for step in ("brief", "brand", "sitemap"):
         run = gp.advance(run, step, by="hermes") if run["steps"][gp.ORDER.index(step)]["state"] == "todo" else run
@@ -109,5 +109,5 @@ def test_registered_tool_list_matches(tmp_path):
             return lambda *a, **k: names.append(k.get("name")) if name == "register_tool" else None
     load_plugin().register(Ctx())
     assert [n for n in names if n] == ["wp_doctor", "wp_sites", "wp_content", "wp_draft", "wp_desk", "wp_proof", "wp_seo",
-                                       "wp_build"]
+                                       "wp_build", "wp_pack"]
     assert json.dumps(names)

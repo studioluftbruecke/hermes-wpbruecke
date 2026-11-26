@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 LEVELS = ("read_public", "read", "drafts", "publish")      # rank 0..3
 REFUSE_CAPS = ("manage_options", "edit_users", "install_plugins", "edit_theme_options")
-PUBLISH_CAPS = ("publish_posts", "publish_pages")
+PUBLISH_CAPS = ("publish_posts", "publish_pages", "publish_products")   # WooCommerce's create checks publish_products (P27)
 READER_ROLE = "wpbruecke_reader"
 READER_CONNECTOR = (0, 2, 1)   # 0.2.0 stored edit caps in the role; 0.2.1 stores read caps only
 
@@ -37,10 +37,26 @@ def true_caps(caps: Any) -> list:
     return []
 
 
-def caps_fingerprint(caps: Any, roles: Any = ()) -> str:
-    """First 12 hex of sha256 of the sorted true caps joined by ``,`` (role-name caps excluded)."""
-    names = [c for c in true_caps(caps) if c not in set(roles or ())]
+# Capabilities a plugin's own update steps add to WordPress roles. No WPBrücke path uses them, so they
+# are not part of what Hermes may do: Elementor 4.4.2 adds elementor_global_classes_* and
+# elementor_atomic_widgets_* to the Editor role on its first wp-admin visit after an install or update,
+# which stopped every Editor-keyed site until the person confirmed again.
+IGNORED_CAP_PREFIXES = ("elementor_",)
+
+
+def _fp(names: list) -> str:
     return hashlib.sha256(",".join(names).encode()).hexdigest()[:12]
+
+
+def caps_fingerprint(caps: Any, roles: Any = ()) -> str:
+    """First 12 hex of sha256 of the sorted true caps joined by ``,`` (role-name caps and
+    IGNORED_CAP_PREFIXES excluded)."""
+    return _fp([c for c in true_caps(caps) if c not in set(roles or ()) and not c.startswith(IGNORED_CAP_PREFIXES)])
+
+
+def legacy_caps_fingerprint(caps: Any, roles: Any = ()) -> str:
+    """The fingerprint 0.3.x recorded at Confirm (no prefix ignored), so an update does not stop a site."""
+    return _fp([c for c in true_caps(caps) if c not in set(roles or ())])
 
 
 def _version(v: Any) -> tuple:
@@ -49,6 +65,13 @@ def _version(v: Any) -> tuple:
         digits = "".join(ch for ch in part if ch.isdigit())
         out.append(int(digits) if digits else 0)
     return tuple(out + [0] * (3 - len(out)))
+
+
+def _publishes(held: set) -> str:
+    """What a Publish-level user publishes, in words (a shop role adds products)."""
+    posts = "all posts and pages" if "publish_pages" in held else \
+        "its own posts" if "publish_posts" in held or "publish_products" not in held else ""
+    return " and ".join(w for w in (posts, "products" if "publish_products" in held else "") if w)
 
 
 def classify(roles: Any, caps: Any, connector_version: Optional[str] = None) -> "tuple[str, str]":
@@ -64,10 +87,10 @@ def classify(roles: Any, caps: Any, connector_version: Optional[str] = None) -> 
             return "read", "the WPBrücke reader role, held read-only by the connector"
         return "refused", REFUSED_READER
     if any(c in held for c in PUBLISH_CAPS):
-        who = "all posts and pages" if "publish_pages" in held else "its own posts"
-        return "publish", f"the user can publish {who}"
+        return "publish", f"the user can publish {_publishes(held)}"
     if "edit_posts" in held:
-        return "drafts", "the user can write drafts" + (" with images" if "upload_files" in held else "")
+        return "drafts", "the user can write drafts" + (" with images" if "upload_files" in held else "") + \
+            (" and draft products" if "edit_products" in held else "")
     if "read" in held:
         return "read_public", "the user can only read"
     return "none", "the user has no role on this site"
@@ -81,20 +104,20 @@ def level_words(level: Optional[str], caps: Any = None) -> Optional[str]:
     held = set(true_caps(caps))
     if level == "read":
         return "read posts, pages and drafts, never write"
+    products = " and draft products" if "edit_products" in held else ""
     if level == "drafts":
-        return "write drafts with images" if "upload_files" in held else \
-            "write drafts (no images: Contributor cannot upload)"
+        return ("write drafts with images" if "upload_files" in held else
+                "write drafts (no images: Contributor cannot upload)") + products
     if level == "publish":
-        return "write and publish all posts and pages" if "publish_pages" in held else \
-            "write and publish its own posts"
+        return f"write and publish {_publishes(held)}"
     if level == "read_public":
         return "read what the public sees"
     return None
 
 
-def effective(access: Optional[dict], live_level: str, live_fp: str = "") -> "tuple[str, Optional[str]]":
+def effective(access: Optional[dict], live_level: str, live_fp: Any = "") -> "tuple[str, Optional[str]]":
     """(effective, level in force). ``live_level`` is classify's answer now, ``live_fp`` its caps
-    fingerprint."""
+    fingerprint, or a tuple of fingerprints any of which matches (current and legacy)."""
     if not access:
         return "unconfirmed", None
     if live_level in ("refused", "none") or live_level not in LEVELS:
@@ -103,7 +126,8 @@ def effective(access: Optional[dict], live_level: str, live_fp: str = "") -> "tu
     if rank(live_level) > rank(recorded):
         return "stopped", None
     if rank(live_level) == rank(recorded):
-        if live_fp and access.get("caps_fingerprint") and live_fp != access.get("caps_fingerprint"):
+        fps = tuple(f for f in ((live_fp,) if isinstance(live_fp, str) else tuple(live_fp or ())) if f)
+        if fps and access.get("caps_fingerprint") and access.get("caps_fingerprint") not in fps:
             return "stopped", None
         return "confirmed", recorded
     return "lowered", live_level
@@ -116,7 +140,7 @@ STOP_REASONS = {
 }
 
 
-def stop_reason(access: Optional[dict], live_level: str, live_fp: str = "") -> Optional[str]:
+def stop_reason(access: Optional[dict], live_level: str, live_fp: Any = "") -> Optional[str]:
     if not access or effective(access, live_level, live_fp)[0] != "stopped":
         return None
     if live_level not in LEVELS:
@@ -143,8 +167,8 @@ REFUSALS = {
                     "WPBrücke reader role or a wider one and confirm again on the WPBrücke page.",
     "level_read": "Read access: this site's Hermes user cannot write. Change its role in WordPress and confirm "
                   "again on the WPBrücke page.",
-    "level_drafts": "Drafts access: this site's Hermes user cannot publish. Give it the Author or Editor role in "
-                    "WordPress and confirm again on the WPBrücke page.",
+    "level_drafts": "Drafts access: this site's Hermes user cannot publish. Give it the Author or Editor role (for "
+                    "products the WPBrücke shop publisher role) in WordPress and confirm again on the WPBrücke page.",
     "level_unconfirmed": "This site's access level is not confirmed yet. Confirm it on the WPBrücke page.",
     "level_stopped": "WPBrücke stopped this site because the WordPress user's rights changed. Confirm again on the "
                      "WPBrücke page.",

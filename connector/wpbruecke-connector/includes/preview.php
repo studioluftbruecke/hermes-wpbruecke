@@ -193,7 +193,8 @@ function wpbruecke_preview_pre_get_posts( $query ) {
 	$query->set( 'post_type', $post->post_type );
 	$query->set( 'post_status', wpbruecke_preview_statuses() );
 	if ( ! defined( 'DONOTCACHEPAGE' ) ) {
-		define( 'DONOTCACHEPAGE', true );
+		// Page-cache plugins (WP Super Cache, W3 Total Cache, WP Rocket, LiteSpeed Cache) read this exact shared name; a prefixed one would cache the preview.
+		define( 'DONOTCACHEPAGE', true ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound
 	}
 	add_filter( 'redirect_canonical', '__return_false' );
 	add_filter( 'wp_robots', 'wp_robots_no_robots' );

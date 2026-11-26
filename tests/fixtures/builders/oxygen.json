@@ -1,0 +1,63 @@
+{
+ "builder": "oxygen",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "Oxygen leaves the body alone; the plugin's assets show on the home page",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "facts": {
+    "seo_public": {
+     "plugins_in_html": [
+      "oxygen"
+     ]
+    }
+   },
+   "expect": {
+    "id": "unknown_builder",
+    "source": "markup",
+    "evidence": "the site runs Oxygen"
+   }
+  },
+  {
+   "name": "connector field (Oxygen 4 JSON meta)",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "",
+     "rendered": ""
+    },
+    "meta": {},
+    "wpbruecke_builder": {
+     "id": "oxygen",
+     "evidence": [
+      "meta ct_builder_json=set"
+     ]
+    }
+   },
+   "expect": {
+    "id": "oxygen",
+    "source": "connector",
+    "evidence": "meta ct_builder_json=set"
+   }
+  }
+ ]
+}

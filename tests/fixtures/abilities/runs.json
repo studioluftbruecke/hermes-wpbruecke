@@ -1,0 +1,362 @@
+{
+ "as": {
+  "author": "author",
+  "editor": "editor",
+  "editor_fcrm": "editor with fcrm_read_emails only",
+  "shop_manager": "shop_manager",
+  "shop_publisher": "wpbruecke_shop_publisher (PK0 stub role)"
+ },
+ "recorded": "2026-11-26 (same boot as listing.json)",
+ "runs": {
+  "crm_context_author_no_permission": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/fluent-crm/get-crm-context/run",
+   "query": [
+    [
+     "input[include_segment_counts]",
+     "false"
+    ]
+   ],
+   "response": {
+    "additional_data": [
+     {
+      "next_step": "Your permissions are listed by get-crm-context (you.permissions). Ask a FluentCRM administrator to grant one, or stop.",
+      "required_mode": "any",
+      "required_permissions": [
+       "fcrm_view_dashboard",
+       "fcrm_read_contacts",
+       "fcrm_read_emails",
+       "…"
+      ]
+     }
+    ],
+    "code": "forbidden",
+    "data": {
+     "status": 403
+    },
+    "message": "{\"error\":{\"code\":\"forbidden\",\"message\":\"You need one of these FluentCRM permissions for this tool.\",\"retryable\":false,\"details\":{\"required_permissions\":[\"fcrm_view_dashboard\",\"fcrm_read_contacts\",\"fcrm_read_emails\",\"fcrm_read_funnels\",\"fcrm_manage_settings\"],\"required_mode\":\"any\",\"next_step\":\"Your permissions are listed by get-crm-context (you.permissions). Ask a FluentCRM administrator to grant one, or stop.\"}}}"
+   },
+   "status": 403
+  },
+  "crm_context_editor_fcrm_read_emails": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/fluent-crm/get-crm-context/run",
+   "query": [
+    [
+     "input[include_segment_counts]",
+     "false"
+    ]
+   ],
+   "response": {
+    "context_sections": {
+     "catalog": {
+      "automation_catalog": {
+       "available": false,
+       "reason": "missing_capability",
+       "required": "fcrm_read_funnels"
+      },
+      "capabilities": {
+       "available": true
+      },
+      "custom_fields": {
+       "available": false,
+       "reason": "missing_capability",
+       "required": "fcrm_read_contacts"
+      },
+      "email_blocks": {
+       "available": true
+      },
+      "enums": {
+       "available": true
+      },
+      "guidelines": {
+       "available": true
+      },
+      "overview": {
+       "available": true
+      },
+      "rate_hints": {
+       "available": true
+      },
+      "safety": {
+       "available": true
+      },
+      "segments": {
+       "available": false,
+       "reason": "missing_capability",
+       "required": "fcrm_read_contacts"
+      },
+      "sender": {
+       "available": true
+      },
+      "smart_codes": {
+       "available": true
+      },
+      "stats": {
+       "available": false,
+       "reason": "missing_capability",
+       "required": "fcrm_view_dashboard"
+      }
+     },
+     "default": [
+      "overview"
+     ],
+     "included": [
+      "overview"
+     ],
+     "request_with": "include",
+     "requested": [
+      "overview"
+     ]
+    },
+    "meta": {
+     "schema_version": "2.0.0"
+    },
+    "overview": {
+     "counts": {
+      "campaigns_sent_last_7d": 0
+     },
+     "enums": {
+      "campaign_statuses": [
+       "draft",
+       "scheduled",
+       "pending-scheduled",
+       "…"
+      ],
+      "one_off_statuses": [
+       "published"
+      ]
+     },
+     "features": {
+      "companies_enabled": false,
+      "event_tracking_enabled": false,
+      "fluent_campaign_active": false
+     }
+    },
+    "rules": [
+     "Confirm with the user before a delete, merge, send, schedule or a change that can start automations; include=[\"safety\"] lists those tools under confirm_first. dry_run=true needs no confirmation.",
+     "Campaigns go only to subscribed contacts. Adding a tag or list can start automations that email contacts.",
+     "Several tags or lists match contacts with ANY of them; for ALL use advanced_filters with operator in_all.",
+     "…"
+    ],
+    "site": {
+     "current_time": "2026-11-26T03:57:27+00:00",
+     "fluent_campaign_active": false,
+     "fluent_crm_version": "3.3.5",
+     "site_url": "https://test.example",
+     "timezone": "+00:00",
+     "timezone_name": "UTC",
+     "utc_offset": "+00:00"
+    },
+    "you": {
+     "email": "someone@example.test",
+     "is_admin": false,
+     "name": "hermes_editor",
+     "permissions": [
+      "fcrm_read_emails"
+     ],
+     "tool_groups": [
+      "campaigns"
+     ],
+     "wp_user_id": 3
+    }
+   },
+   "status": 200
+  },
+  "crm_context_no_input": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/fluent-crm/get-crm-context/run",
+   "query": [],
+   "response": {
+    "code": "invalid_param",
+    "data": {
+     "status": 400
+    },
+    "message": "{\"error\":{\"code\":\"invalid_param\",\"message\":\"Invalid input: input is not of type object.\",\"retryable\":false}}"
+   },
+   "status": 400
+  },
+  "list_campaigns_no_input": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/fluent-crm/list-campaigns/run",
+   "query": [],
+   "response": {
+    "code": "invalid_param",
+    "data": {
+     "status": 400
+    },
+    "message": "{\"error\":{\"code\":\"invalid_param\",\"message\":\"Invalid input: input is not of type object.\",\"retryable\":false}}"
+   },
+   "status": 400
+  },
+  "not_found": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/woocommerce/no-such-ability/run",
+   "query": [
+    [
+     "input[x]",
+     "1"
+    ]
+   ],
+   "response": {
+    "code": "rest_ability_not_found",
+    "data": {
+     "status": 404
+    },
+    "message": "Ability not found."
+   },
+   "status": 404
+  },
+  "products_query_editor": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/woocommerce/products-query/run",
+   "query": [
+    [
+     "input[per_page]",
+     "5"
+    ]
+   ],
+   "response": {
+    "code": "rest_ability_cannot_execute",
+    "data": {
+     "status": 403
+    },
+    "message": "Sorry, you are not allowed to execute this ability."
+   },
+   "status": 403
+  },
+  "products_query_invalid_input": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/woocommerce/products-query/run",
+   "query": [
+    [
+     "input[per_page]",
+     "many"
+    ]
+   ],
+   "response": {
+    "code": "ability_invalid_input",
+    "data": {
+     "status": 400
+    },
+    "message": "Ability \"woocommerce/products-query\" has invalid input. Reason: input[per_page] is not of type integer."
+   },
+   "status": 400
+  },
+  "products_query_post": {
+   "body": {
+    "input": {
+     "per_page": 5
+    }
+   },
+   "method": "POST",
+   "path": "/wp-json/wp-abilities/v1/abilities/woocommerce/products-query/run",
+   "query": [],
+   "response": {
+    "code": "rest_ability_invalid_method",
+    "data": {
+     "status": 405
+    },
+    "message": "Read-only abilities require GET method."
+   },
+   "status": 405
+  },
+  "products_query_shop_manager": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/woocommerce/products-query/run",
+   "query": [
+    [
+     "input[per_page]",
+     "5"
+    ]
+   ],
+   "response": {
+    "page": 1,
+    "per_page": 5,
+    "products": [
+     {
+      "button_text": null,
+      "currency": "USD",
+      "currency_symbol": "$",
+      "date_created": "2026-11-26T03:57:16",
+      "date_created_gmt": "2026-11-26T03:57:16",
+      "date_modified": "2026-11-26T03:57:16",
+      "date_modified_gmt": "2026-11-26T03:57:16",
+      "downloadable": false,
+      "external_url": null,
+      "grouped_products": [],
+      "id": 15,
+      "manage_stock": false,
+      "name": "PK1 sample product",
+      "permalink": "https://test.example/product/pk1-sample-product/",
+      "price": "12.00",
+      "regular_price": "12.00",
+      "sale_price": "",
+      "sku": "",
+      "slug": "pk1-sample-product",
+      "status": "publish",
+      "stock_quantity": null,
+      "stock_status": "instock",
+      "type": "simple",
+      "virtual": false
+     }
+    ],
+    "total_pages": 1
+   },
+   "status": 200
+  },
+  "products_query_shop_publisher": {
+   "body": null,
+   "method": "GET",
+   "path": "/wp-json/wp-abilities/v1/abilities/woocommerce/products-query/run",
+   "query": [
+    [
+     "input[per_page]",
+     "5"
+    ]
+   ],
+   "response": {
+    "page": 1,
+    "per_page": 5,
+    "products": [
+     {
+      "button_text": null,
+      "currency": "USD",
+      "currency_symbol": "$",
+      "date_created": "2026-11-26T03:57:16",
+      "date_created_gmt": "2026-11-26T03:57:16",
+      "date_modified": "2026-11-26T03:57:16",
+      "date_modified_gmt": "2026-11-26T03:57:16",
+      "downloadable": false,
+      "external_url": null,
+      "grouped_products": [],
+      "id": 15,
+      "manage_stock": false,
+      "name": "PK1 sample product",
+      "permalink": "https://test.example/product/pk1-sample-product/",
+      "price": "12.00",
+      "regular_price": "12.00",
+      "sale_price": "",
+      "sku": "",
+      "slug": "pk1-sample-product",
+      "status": "publish",
+      "stock_quantity": null,
+      "stock_status": "instock",
+      "type": "simple",
+      "virtual": false
+     }
+    ],
+    "total_pages": 1
+   },
+   "status": 200
+  }
+ }
+}

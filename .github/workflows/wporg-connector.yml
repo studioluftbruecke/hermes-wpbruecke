@@ -1,0 +1,105 @@
+# Deploys the WPBrücke Connector (connector/wpbruecke-connector) to the WordPress.org plugin directory as
+# the plugin slug wpbruecke-connector. It runs only when someone clicks Run workflow under Actions: the
+# release export pushes a release commit and no tags, so there is no tag to trigger on. The dry run, the
+# default, checks everything and commits nothing to WordPress.org's Subversion.
+name: wporg-connector
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Dry run (check and stage, commit nothing to WordPress.org)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wporg-connector
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      BUILD_DIR: connector/wpbruecke-connector
+      ASSETS_DIR: connector/.wordpress-org
+      SLUG: wpbruecke-connector
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The SVN tag is the plugin header's Version, never a git ref, and readme.txt must agree with it.
+      - name: Version from the plugin header
+        id: version
+        run: |
+          main="$BUILD_DIR/wpbruecke-connector.php"
+          version="$(sed -n 's/^[[:space:]*]*Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$main" | head -n 1)"
+          stable="$(sed -n 's/^Stable tag:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$BUILD_DIR/readme.txt" | head -n 1)"
+          echo "plugin header Version: ${version:-<none>}"
+          echo "readme.txt Stable tag: ${stable:-<none>}"
+          if [ -z "$version" ]; then
+            echo "::error file=$main::no Version: line in the plugin header"
+            exit 1
+          fi
+          if [ "$version" != "$stable" ]; then
+            echo "::error file=$BUILD_DIR/readme.txt::Stable tag $stable differs from the plugin header Version $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Plugin Check
+        uses: WordPress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
+        with:
+          build-dir: ${{ env.BUILD_DIR }}
+          categories: plugin_repo
+          slug: ${{ env.SLUG }}
+
+      # The deploy action checks out the plugin's SVN repository even in a dry run and needs both secrets,
+      # so before the listing exists a dry run stops here, green; a real run without them fails.
+      - name: Listing and secrets
+        id: listing
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+          HAS_SVN_SECRETS: ${{ secrets.SVN_USERNAME != '' && secrets.SVN_PASSWORD != '' }}
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' "https://plugins.svn.wordpress.org/$SLUG/")"
+          echo "plugins.svn.wordpress.org/$SLUG/ answers $code; SVN secrets set: $HAS_SVN_SECRETS; dry run: $DRY_RUN"
+          if [ "$code" = 200 ] && [ "$HAS_SVN_SECRETS" = true ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif [ "$DRY_RUN" = true ]; then
+            echo "::notice::Deploy step skipped: the listing $SLUG does not exist yet or SVN_USERNAME / SVN_PASSWORD are not set. Version and Plugin Check passed."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Cannot deploy: the listing $SLUG must exist and both SVN_USERNAME and SVN_PASSWORD secrets must be set."
+            exit 1
+          fi
+
+      # BUILD_DIR is copied to trunk whole (a .distignore is never read with BUILD_DIR), ASSETS_DIR to assets,
+      # and trunk is copied to tags/VERSION.
+      - name: Deploy to WordPress.org
+        if: steps.listing.outputs.deploy == 'true'
+        uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2 # 2.3.0
+        with:
+          dry-run: ${{ inputs.dry-run }}
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+
+      - name: Summary
+        if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          DEPLOY: ${{ steps.listing.outputs.deploy }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          {
+            echo "### wporg-connector"
+            echo "- VERSION: ${VERSION:-none}"
+            echo "- dry run: $DRY_RUN"
+            echo "- deploy step ran: ${DEPLOY:-false}"
+          } >> "$GITHUB_STEP_SUMMARY"

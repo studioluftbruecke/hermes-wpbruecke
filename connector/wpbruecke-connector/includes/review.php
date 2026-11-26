@@ -83,6 +83,8 @@ function wpbruecke_review_notices() {
 		'not_gp'         => array( 'error', __( 'The active theme is not GeneratePress, so the staged brand was not applied.', 'wpbruecke-connector' ) ),
 		'nothing_staged' => array( 'error', __( 'There is no staged brand.', 'wpbruecke-connector' ) ),
 		'failed'         => array( 'error', __( 'WordPress refused the change.', 'wpbruecke-connector' ) ),
+		'live_changed'   => array( 'error', __( 'The live page changed since this copy was staged, so the copy was not applied. Stage the change again so nobody\'s edit is lost.', 'wpbruecke-connector' ) ),
+		'kses_stripped'  => array( 'error', __( 'WordPress would strip HTML from this page for your user, so the copy was not applied. A user who may post unfiltered HTML applies it.', 'wpbruecke-connector' ) ),
 	);
 }
 
@@ -237,8 +239,17 @@ function wpbruecke_review_render() {
 			}
 			echo '</div></div>';
 			echo '<h2>' . esc_html__( 'Apply', 'wpbruecke-connector' ) . '</h2>';
-			if ( $source && 'trash' !== $source->post_status && current_user_can( 'edit_post', $source->ID ) && current_user_can( 'delete_post', $post->ID ) ) {
-				echo '<p>' . esc_html__( 'Apply copies the title, content, excerpt, featured image and SEO fields of the copy onto the live post, keeps the live post\'s status, and moves the copy to the trash.', 'wpbruecke-connector' ) . '</p>';
+			$elementor = wpbruecke_review_is_elementor_copy( $post );
+			$can_apply = $source && 'trash' !== $source->post_status && current_user_can( 'edit_post', $source->ID ) && current_user_can( 'delete_post', $post->ID );
+			if ( $can_apply && $elementor ) {
+				$can_apply = wpbruecke_elementor_can_apply( $post, $source );
+			}
+			if ( $can_apply ) {
+				if ( $elementor ) {
+					echo '<p>' . esc_html__( 'Apply copies the Elementor layout, title, content, excerpt, page template, featured image and SEO fields of the copy onto the live page, keeps its status, and moves the copy to the trash. It is refused when the live page changed since the copy was staged.', 'wpbruecke-connector' ) . '</p>';
+				} else {
+					echo '<p>' . esc_html__( 'Apply copies the title, content, excerpt, featured image and SEO fields of the copy onto the live post, keeps the live post\'s status, and moves the copy to the trash.', 'wpbruecke-connector' ) . '</p>';
+				}
 				wpbruecke_review_form_open( 'apply', $post->ID );
 				submit_button( __( 'Apply copy to the live post', 'wpbruecke-connector' ), 'primary', 'submit', false );
 				echo '</form>';
@@ -352,6 +363,17 @@ function wpbruecke_review_schedule() {
 add_action( 'admin_post_wpbruecke_review_schedule', 'wpbruecke_review_schedule' );
 
 /**
+ * Whether a copy was staged through the Elementor route: its apply goes through the same function as the
+ * agent's (includes/elementor.php), which carries Elementor's meta and checks the live page.
+ *
+ * @param WP_Post $copy Copy.
+ * @return bool
+ */
+function wpbruecke_review_is_elementor_copy( $copy ) {
+	return function_exists( 'wpbruecke_elementor_apply_copy' ) && (bool) get_post_meta( $copy->ID, WPBRUECKE_ELEMENTOR_BASE_META, true );
+}
+
+/**
  * POST apply: copy a draft copy onto its live post with the person's own rights, then trash the copy.
  */
 function wpbruecke_review_apply() {
@@ -363,6 +385,19 @@ function wpbruecke_review_apply() {
 	}
 	if ( ! current_user_can( 'edit_post', $source->ID ) || ! current_user_can( 'delete_post', $copy->ID ) ) {
 		wpbruecke_review_redirect( $copy->ID, 'denied' );
+	}
+	if ( wpbruecke_review_is_elementor_copy( $copy ) ) {
+		$result = wpbruecke_elementor_apply_copy( $copy );
+		if ( is_wp_error( $result ) ) {
+			$codes = array(
+				'rest_forbidden'   => 'denied',
+				'live_changed'     => 'live_changed',
+				'kses_would_strip' => 'kses_stripped',
+			);
+			$code  = $result->get_error_code();
+			wpbruecke_review_redirect( $copy->ID, isset( $codes[ $code ] ) ? $codes[ $code ] : 'failed' );
+		}
+		wpbruecke_review_redirect( $source->ID, 'applied' );
 	}
 	// wp_update_post() unslashes its input, so the values go in slashed.
 	$result = wp_update_post(

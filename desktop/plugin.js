@@ -29,6 +29,9 @@ import {
   useQueryClient,
   useValue
 } from '@hermes/plugin-sdk'
+// Optional SDK names are read from the namespace: Desktop's shim exports only the names it has, and a
+// named import of one it lacks fails this whole file at load.
+import * as sdkNs from '@hermes/plugin-sdk'
 import { Component, useEffect, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
@@ -44,6 +47,9 @@ const SITE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 const ITEM_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const VIEWS = ['home', 'desk', 'seo', 'build', 'connect', 'settings', 'site']
 const LIMIT_LINE = 'Only the WordPress role holds against everything; anything with shell access on the Hermes host can read the stored password.'
+// The connector version this plugin ships (connector_zip.CONNECTOR_VERSION; a test holds them equal).
+const CONNECTOR_NEEDED = '0.5.0'
+const CONNECTOR_CLI = 'hermes wpbruecke connector-zip --out PATH'
 
 let pluginCtx = null
 // The sidebar row (the shared module below), kept here so the settings page can draw its Sidebar section.
@@ -244,6 +250,13 @@ color:var(--wpb-fg);font-size:13px;line-height:1.5;-webkit-font-smoothing:antial
 .wpb-set:first-child{border-top:0}
 .wpb-set .wpb-lbl b{display:block;font-weight:560} .wpb-set .wpb-lbl span{font-size:12px;color:var(--wpb-muted)}
 .wpb-rights{display:flex;flex-wrap:wrap;gap:6px}
+.wpb-activity{margin-top:22px}
+.wpb-acthead{background:none;border:0;padding:4px 0;display:inline-flex;gap:6px;align-items:center;color:var(--wpb-muted);font-size:12px;cursor:pointer}
+.wpb-acthead:hover{color:var(--wpb-fg)}
+.wpb-actlist{margin-top:6px;border-top:1px solid var(--wpb-line)}
+.wpb-act{display:grid;grid-template-columns:92px minmax(0,1fr);gap:4px 12px;padding:7px 0;border-bottom:1px solid var(--wpb-line);font-size:12px}
+.wpb-act .wpb-when{color:var(--wpb-faint);font-family:var(--wpb-mono);font-size:11px;padding-top:1px}
+.wpb-act-refused b{color:var(--wpb-warn)} .wpb-act-error b{color:var(--wpb-bad)}
 .wpb-ver{display:flex;justify-content:space-between;gap:8px;padding:7px 14px;border-top:1px solid var(--wpb-line);font-size:12px;flex-wrap:wrap}
 .wpb-yaml{font:11.5px/1.55 var(--wpb-mono);padding:10px 14px;margin:0;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;border-top:1px solid var(--wpb-line);color:var(--wpb-fg)}
 .wpb-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 12px;font-size:12px;margin:0}
@@ -390,6 +403,8 @@ const useSite = site => useRoute_(['site', site], '/sites/' + enc(site), { enabl
 const useDesk = site => useRoute_(['desk', site || ''], '/desk' + (site ? '?site=' + enc(site) : ''))
 const useDeskItem = item => useRoute_(['item', item], '/desk/' + enc(item), { enabled: Boolean(item) })
 const useSeo = site => useRoute_(['seo', site], '/seo?site=' + enc(site), { enabled: Boolean(site) })
+// The write log is read only while the Activity disclosure is open (it stays in the background, A35).
+const useActivity = (site, open) => useRoute_(['activity', site], '/sites/' + enc(site) + '/activity', { enabled: Boolean(site) && open })
 const useBuilds = (site, enabled) => useRoute_(['build', site], '/build?site=' + enc(site), { enabled: Boolean(site) && enabled })
 
 function useInvalidate() {
@@ -721,6 +736,60 @@ function accessOf(row) {
 // The site's own group label ("Clients") when the row carries it; a number is the Site N group.
 const labelGroup = row => (typeof row.label_group === 'string' ? row.label_group : typeof row.group === 'string' ? row.group : '')
 
+// ── connector, health and builder on a site ──────────────────────────────────────────────────────
+
+const versionParts = v => String(v || '').split(/[.+-]/).slice(0, 3).map(n => parseInt(n, 10) || 0)
+
+// 'ok', 'older' (below the version this plugin ships), 'missing', or 'unread' (installed, version not
+// readable without a key).
+function connectorState(version, present) {
+  if (!version) return present ? 'unread' : 'missing'
+  const [a, b] = [versionParts(version), versionParts(CONNECTOR_NEEDED)]
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i] ? 'older' : 'ok'
+  return 'ok'
+}
+
+const installHref = siteUrl => String(siteUrl || '').replace(/\/+$/, '') + '/wp-admin/plugin-install.php?tab=upload'
+
+function InstallLink({ url, kind }) {
+  if (!/^https?:\/\//i.test(String(url || ''))) return null
+  return el(Btn, { kind, onClick: () => openExternal(installHref(url)), ext: true, test: 'install-connector', title: 'WordPress: Plugins, Add New, Upload Plugin' }, 'Install in WordPress')
+}
+
+const HEALTH_BADGE = {
+  broken: ['bad', 'Broken', 'The home page answers with an error'],
+  updating: ['warn', 'Updating', 'WordPress shows its maintenance page while an update runs']
+}
+
+const BUILDER_NAME = {
+  elementor: 'Elementor', divi: 'Divi', wpbakery: 'WPBakery', beaver: 'Beaver Builder', bricks: 'Bricks',
+  oxygen: 'Oxygen', breakdance: 'Breakdance', unknown_builder: 'Unknown builder'
+}
+// The block editor and the classic editor are WordPress itself, not a page builder.
+const NOT_A_BUILDER = ['blocks', 'classic']
+
+// Health when it is not ok, and each page builder with "no pack" when its pack is off. A key the
+// backend does not send yet renders nothing.
+function SiteBadges({ row }) {
+  const out = []
+  const h = row.health && HEALTH_BADGE[row.health.verdict]
+  if (h) {
+    const since = Number(row.health.since)
+    const when = Number.isFinite(since) && since > 0 ? ago(new Date(since * 1000).toISOString()) : ''
+    out.push(el(Badge, { key: 'health', tone: h[0], title: h[2] + (when ? ', since ' + when : '') }, el('span', { 'data-test': 'health-badge' }, h[1])))
+  }
+  const packs = row.packs && typeof row.packs === 'object' ? row.packs : null
+  for (const id of Array.isArray(row.builders) ? row.builders : []) {
+    if (typeof id !== 'string' || NOT_A_BUILDER.includes(id)) continue
+    const pack = packs && packs[id] && typeof packs[id] === 'object' ? packs[id] : null
+    const name = (pack && typeof pack.label === 'string' && pack.label) || BUILDER_NAME[id] || id
+    const noPack = packs !== null && !(pack && pack.on)
+    out.push(el(Badge, { key: 'b-' + id, title: noPack ? 'Without a pack for this builder Hermes does not write the body of these pages' : undefined },
+      el('span', { 'data-test': 'builder-badge' }, noPack ? name + ' · no pack' : name)))
+  }
+  return out.length ? out : null
+}
+
 // ── Needs you (aside) ────────────────────────────────────────────────────────────────────────────
 
 function NeedsYou({ needs, go, note }) {
@@ -732,6 +801,66 @@ function NeedsYou({ needs, go, note }) {
         el('span', { className: cx('wpb-when', n.urgent && 'wpb-urgent') }, n.urgent ? 'now' : ago(n.when, true))))
       : el('div', { className: 'wpb-side-note' }, 'Nothing waits for you. Drafts, staged changes and SEO findings show up here.'),
     note ? el('div', { className: 'wpb-side-note' }, note) : null)
+}
+
+// ── Activity: the write log at the foot of the site page, closed until opened ─────────────────────
+
+const ACTIVITY_WORDS = {
+  create: 'Draft created', update: 'Draft changed', stage: 'Change staged as a draft copy', set_seo: 'SEO fields set',
+  publish: 'Published', schedule: 'Scheduled', apply: 'Staged change applied', upload_media: 'Image uploaded',
+  stage_fix: 'SEO fix staged', set_brand: 'Brand colours staged', add_site: 'Site file added', update_site: 'Site file changed',
+  restore_site: 'Site file restored', remove_site: 'Site file removed', add_public_site: 'Public site added',
+  confirm_level: 'Access level confirmed', revoke_password: 'Application password revoked', mark_reviewed: 'Marked reviewed',
+  ask_changes: 'Changes asked for', note: 'Note added', request_publish: 'Publish asked for', record_user: 'WordPress user recorded'
+}
+
+function activityWho(who) {
+  const w = String(who || '')
+  if (w === 'person') return 'you'
+  if (w.startsWith('automation')) return 'an automation'
+  if (w === 'unattended') return 'an unattended run'
+  if (w === 'check') return 'the connection check'
+  return 'Hermes'
+}
+
+function activityWhat(line) {
+  const words = ACTIVITY_WORDS[line.action] || String(line.action || 'write').replace(/_/g, ' ')
+  if (line.result === 'refused') return 'Refused: ' + words.charAt(0).toLowerCase() + words.slice(1) + (line.code ? ' (' + line.code + ')' : '')
+  if (line.result === 'error') return 'Failed: ' + words.charAt(0).toLowerCase() + words.slice(1) + (line.code ? ' (' + line.code + ')' : '')
+  return words
+}
+
+function activityTarget(line) {
+  const kind = line.wp_type && !['site_file', 'access', 'application_password', 'brand'].includes(line.wp_type) ? line.wp_type : ''
+  const label = line.label ? '“' + line.label + '”' : ''
+  return [label, kind && line.wp_id != null ? kind + ' ' + line.wp_id : ''].filter(Boolean).join(' · ')
+}
+
+function ActivityRow({ line }) {
+  const target = activityTarget(line)
+  return el('div', { className: cx('wpb-act', line.result !== 'ok' && 'wpb-act-' + line.result), 'data-test': 'activity-line' },
+    el('span', { className: 'wpb-when', title: line.ts || '' }, ago(line.ts)),
+    el('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } },
+      el('b', {}, activityWhat(line)), target ? ' ' + target : '', el('span', { className: 'wpb-muted' }, ', by ' + activityWho(line.who)),
+      line.summary ? el('span', { className: 'wpb-xs wpb-faint', style: { display: 'block' } }, line.summary) : null))
+}
+
+function Activity({ site }) {
+  const [open, setOpen] = useState(false)
+  const q = useActivity(site, open)
+  const lines = (q.data && q.data.lines) || []
+  let body = null
+  if (open) {
+    if (q.isLoading) body = el('div', { style: { paddingTop: 8 } }, el(Skel, { h: 40 }))
+    else if (q.error) body = el('p', { className: 'wpb-small wpb-muted', style: { paddingTop: 8 } }, 'The write log could not be read: ' + q.error.message)
+    else if (!lines.length) body = el('p', { className: 'wpb-small wpb-muted', style: { paddingTop: 8 } }, 'Nothing logged yet. Every change WPBrücke makes or refuses on this site shows up here.')
+    else body = el('div', { className: 'wpb-actlist', 'data-test': 'activity-list' }, lines.map((line, i) => el(ActivityRow, { key: i, line })))
+  }
+  return el('section', { className: 'wpb-activity', 'data-test': 'activity', 'data-open': open ? 'true' : 'false' },
+    el('button', { className: 'wpb-acthead', type: 'button', 'aria-expanded': open, onClick: () => setOpen(!open), 'data-test': 'activity-toggle' },
+      el(Codicon, { name: open ? 'chevron-down' : 'chevron-right', size: '0.9rem' }), 'Activity'),
+    open ? el('p', { className: 'wpb-xs wpb-faint' }, 'What WPBrücke changed or refused on this site, newest first. Hermes reads the same log when you ask what happened.') : null,
+    body)
 }
 
 // ── Home: one site ───────────────────────────────────────────────────────────────────────────────
@@ -759,10 +888,12 @@ function SiteHome({ row, needs, go, many }) {
             el(Badge, {}, row.wp_version ? 'WordPress ' + row.wp_version : 'WordPress version hidden'),
             el(Badge, {}, 'Theme: ' + (row.theme || 'unknown')),
             el('span', { className: 'wpb-health' }, el(Dot, { tone }), health),
+            el(SiteBadges, { row }),
             el(Badge, { tone: access.tone }, 'Access: ' + access.text)))),
       el('div', { className: 'wpb-actions' },
         el(Btn, { kind: 'primary', onClick: newDraft, test: 'new-draft', icon: 'sparkle' }, 'New blog draft with Hermes'),
-        el(Btn, { onClick: () => openExternal(row.wp_admin_url), ext: true }, 'Open wp-admin'))),
+        el(Btn, { onClick: () => openExternal(row.wp_admin_url), ext: true }, 'Open wp-admin'),
+        connectorState(row.connector) === 'ok' ? null : el(InstallLink, { url: row.url }))),
     el('div', { className: 'wpb-strip', 'data-test': 'strip' },
       el('div', {}, el('b', {}, String(row.desk_waiting || 0)), el('span', {}, 'waiting for you')),
       el('div', {}, el('b', {}, row.drafts == null ? '—' : String(row.drafts)), el('span', {}, 'drafts')),
@@ -787,7 +918,8 @@ function SiteHome({ row, needs, go, many }) {
               el('span', {}, el('b', {}, a.id.replace(/-/g, ' ')), el('br', {}), el('span', { className: 'wpb-xs wpb-muted' }, cronWords(a.schedule) + ' · ' + (a.publish && publishes ? 'publishes the ' + (a.post_type || 'post') : 'lands as a ' + (a.post_type || 'post') + ' draft'))),
               el(Badge, { tone: a.enabled ? null : 'warn' }, a.enabled ? 'Hermes scheduled job' : 'paused')))
             : el('div', { className: 'wpb-row wpb-muted wpb-small' }, 'None yet. Tell Hermes, for example: every Monday, a draft from my notes folder.'))),
-      el(NeedsYou, { needs, go, note: levelNote(row) })))
+      el(NeedsYou, { needs, go, note: levelNote(row) })),
+    el(Activity, { site: row.id }))
 }
 
 function levelNote(row) {
@@ -814,7 +946,8 @@ function SiteCard({ row, go }) {
         el('div', { className: 'wpb-meta' },
           el(Badge, {}, 'Theme: ' + (row.theme || 'unknown')),
           el(Badge, {}, row.wp_version ? 'WP ' + row.wp_version : 'WP version hidden'),
-          el('span', { className: 'wpb-health' }, el(Dot, { tone }), health)))),
+          el('span', { className: 'wpb-health' }, el(Dot, { tone }), health),
+          el(SiteBadges, { row })))),
     el('div', { className: 'wpb-stats' },
       el('div', {}, el('b', { className: row.desk_waiting ? 'wpb-hot' : '' }, String(row.desk_waiting || 0)), el('span', {}, 'for you')),
       el('div', {}, el('b', {}, row.updates == null ? '—' : String(row.updates)), el('span', {}, 'updates')),
@@ -828,7 +961,8 @@ function SiteCard({ row, go }) {
     el('div', { className: 'wpb-site-f' },
       el(Btn, { onClick: () => go({ view: 'site', site: row.id }), test: 'open-site' }, 'Open site'),
       row.cockpit_url ? el(Btn, { kind: 'ghost', onClick: () => openTarget(row.cockpit_url), test: 'cockpit-link' }, 'Coolify') : null,
-      el(Btn, { kind: 'ghost', onClick: () => openExternal(row.wp_admin_url), ext: true }, 'wp-admin')))
+      el(Btn, { kind: 'ghost', onClick: () => openExternal(row.wp_admin_url), ext: true }, 'wp-admin'),
+      connectorState(row.connector) === 'ok' ? null : el(InstallLink, { url: row.url, kind: 'ghost' })))
 }
 
 function Fleet({ data, go }) {
@@ -1686,7 +1820,7 @@ function GroupCard({ g, row, profile, href }) {
   } else if (check) {
     body = el('p', { className: 'wpb-gmsg' }, check.message)
     // The refusal says "one of the roles above", so the roles come first.
-    if (state === 'refused') body = [el('p', { key: 'roles', className: 'wpb-xs wpb-muted' }, 'Roles that work: WPBrücke reader, Contributor, WPBrücke drafter, Author, Editor.'), el('p', { key: 'msg', className: 'wpb-gmsg' }, check.message)]
+    if (state === 'refused') body = [el('p', { key: 'roles', className: 'wpb-xs wpb-muted' }, 'Roles that work: WPBrücke reader, Contributor, WPBrücke drafter, WPBrücke shop drafter, Author, WPBrücke shop publisher, Editor.'), el('p', { key: 'msg', className: 'wpb-gmsg' }, check.message)]
     const next = check.next || {}
     if (next.action === 'settings') actions = [settingsBtn(next.label), againBtn()]
     else if (next.action === 'check') actions = [againBtn('primary')]
@@ -1883,6 +2017,69 @@ function fieldWords(v) {
   return String(v)
 }
 
+function ConnectorBadge({ state, version }) {
+  if (state === 'ok') return el(Badge, { tone: 'good' }, 'v' + version)
+  if (state === 'older') return el(Badge, { tone: 'warn', title: 'This plugin ships v' + CONNECTOR_NEEDED }, 'v' + version + ' · older than needed')
+  if (state === 'unread') return el(Badge, { title: 'Its version shows once the site has a password' }, 'installed')
+  return el(Badge, { tone: 'warn' }, 'not installed')
+}
+
+// Desktop's gateway file download, or null on a Desktop without it.
+const fileDownload = () => (typeof sdkNs.captureGatewayFileDownload === 'function' ? sdkNs.captureGatewayFileDownload : null)
+
+// POST /connector-package writes the zip into the plugin's data folder on the Hermes host. The save is
+// bound in the same call as that read (Desktop's lib/media.ts): it belongs to the connection and profile
+// that answered, not to whichever one is focused when the person clicks.
+function useConnectorPackage(enabled) {
+  const profile = useProfile()
+  const capture = fileDownload()
+  return useQuery({
+    queryKey: qk(profile, 'connector-package'),
+    queryFn: async () => {
+      const save = capture()
+      const res = await rest('/connector-package', { method: 'POST', body: {}, timeoutMs: 30000 })
+      return { ...res, save }
+    },
+    enabled: Boolean(enabled && capture),
+    staleTime: Infinity,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    retry: retryOnce
+  })
+}
+
+function cliSentence(why) {
+  return el('span', { className: 'wpb-xs wpb-muted', 'data-test': 'connector-cli' },
+    why + ': run ', el('code', { style: { whiteSpace: 'nowrap' } }, CONNECTOR_CLI), ' on the Hermes computer, then upload the zip in WordPress.')
+}
+
+// Download connector where Desktop can save the zip; the CLI sentence where it cannot (a Desktop
+// without the SDK export, a profile whose workspace is an SSH machine, or a failed build).
+function ConnectorGet({ siteUrl }) {
+  const canSave = Boolean(fileDownload())
+  const q = useConnectorPackage(true)
+  const [saving, setSaving] = useState(false)
+  const pkg = q.data && q.data.ok !== false ? q.data : null
+  const install = el(InstallLink, { url: siteUrl })
+  let body
+  if (!canSave) body = cliSentence('This Desktop cannot save files from Hermes')
+  else if (q.isError || (q.data && q.data.ok === false)) body = cliSentence('The zip could not be made here (' + ((q.error && q.error.message) || q.data.message) + ')')
+  else if (pkg && pkg.workspace === 'ssh') body = cliSentence('This profile works on an SSH machine, so Desktop cannot fetch the zip')
+  if (body) return el('div', { className: 'wpb-stack', style: { gap: 6 }, 'data-test': 'connector-get' }, body, install ? el('div', { className: 'wpb-actions' }, install) : null)
+  const save = () => {
+    if (!pkg || typeof pkg.save !== 'function') return
+    setSaving(true)
+    Promise.resolve(pkg.save(pkg.path, pkg.filename)).catch(() => {}).finally(() => setSaving(false))
+  }
+  return el('div', { className: 'wpb-stack', style: { gap: 6 }, 'data-test': 'connector-get' },
+    el('div', { className: 'wpb-actions' },
+      el(Btn, { kind: 'primary', onClick: save, disabled: !pkg || saving, test: 'download-connector', icon: 'cloud-download' }, 'Download connector'),
+      install),
+    el('span', { className: 'wpb-xs wpb-muted' }, pkg
+      ? 'Connector ' + pkg.version + ' as ' + pkg.filename + '. In WordPress: Upload Plugin, choose the zip, Install Now, Activate.'
+      : 'Preparing the zip.'))
+}
+
 function SettingsView({ site, siteRow, sites, go, compact }) {
   const q = useSite(site)
   const patch = useSitePatch(site)
@@ -1903,6 +2100,7 @@ function SettingsView({ site, siteRow, sites, go, compact }) {
   const autos = Array.isArray(s.automations) ? s.automations : []
   const setPublish = (id, on) => patch.save({ automations: autos.map(a => (a.id === id ? { ...a, publish: on } : a)) })
   const connector = f.connector
+  const cstate = connectorState(connector && connector.version, Boolean(connector || f.connector_ns))
   const groupN = typeof row.group === 'number' ? row.group : s.key_slot || 0
   const words = row.level_words || null
   const detail = [
@@ -1941,8 +2139,9 @@ function SettingsView({ site, siteRow, sites, go, compact }) {
             el(SwitchDisplay, { on: Boolean(s.packs && s.packs.generatepress), busy: patch.saving, onClick: () => patch.save({ packs: { generatepress: !(s.packs && s.packs.generatepress) } }), label: 'GeneratePress pack: build runs, GenerateBlocks pages, colours and fonts', test: 'pack' }))),
         el('div', { className: 'wpb-set' }, el('div', { className: 'wpb-lbl' }, el('b', {}, 'Connections'), el('span', {}, 'All optional')),
           el('div', { className: 'wpb-stack wpb-small', style: { gap: 6 } },
-            el('span', {}, 'WPBrücke connector ', connector ? el(Badge, { tone: 'good' }, 'v' + connector.version) : el(Badge, { tone: 'warn' }, 'not installed'), ' ',
+            el('span', { 'data-test': 'connector-line' }, 'WPBrücke connector ', el(ConnectorBadge, { state: cstate, version: connector && connector.version }), ' ',
               el('span', { className: 'wpb-muted' }, 'reader and drafter roles, signed previews, SEO fields, the review screen')),
+            cstate === 'missing' || cstate === 'older' ? el(ConnectorGet, { siteUrl: s.url }) : null,
             (dark || []).length ? el('div', { className: 'wpb-stack', style: { gap: 4 }, 'data-test': 'not-available' },
               el('span', { className: 'wpb-muted wpb-xs' }, 'Not available with this setup:'),
               dark.map(d => el('span', { key: d.feature, className: 'wpb-xs' }, el('b', {}, d.label), el('span', { className: 'wpb-muted' }, ': ' + d.because)))) : null)),

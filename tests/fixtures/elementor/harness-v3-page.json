@@ -1,0 +1,58 @@
+{
+ "source": "harness boot 2026-11-26T01:11:43Z: GET wpbruecke/v1/elementor/<seeded V3 page>",
+ "version": "4.4.2",
+ "elements": [
+  {
+   "id": "a1b2c3d",
+   "elType": "container",
+   "settings": [],
+   "elements": [
+    {
+     "id": "e4f5a6b",
+     "elType": "widget",
+     "widgetType": "heading",
+     "settings": {
+      "title": "Original heading",
+      "header_size": "h2"
+     },
+     "elements": []
+    },
+    {
+     "id": "c7d8e9f",
+     "elType": "widget",
+     "widgetType": "text-editor",
+     "settings": {
+      "editor": "<p>Original text</p>"
+     },
+     "elements": []
+    },
+    {
+     "id": "b1c2d3e",
+     "elType": "widget",
+     "widgetType": "button",
+     "settings": {
+      "text": "Original button",
+      "link": {
+       "url": "https://example.test/",
+       "is_external": "",
+       "nofollow": ""
+      }
+     },
+     "elements": []
+    },
+    {
+     "id": "f4a5b6c",
+     "elType": "widget",
+     "widgetType": "image",
+     "settings": {
+      "image": {
+       "id": 12,
+       "url": "https://harness.example/wp-content/uploads/2026/11/harness-placeholder.png"
+      }
+     },
+     "elements": []
+    }
+   ]
+  }
+ ]
+}

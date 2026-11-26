@@ -13,6 +13,10 @@ Items live in ``desk/<id>.json`` through ``store.Store`` (atomic writes under th
 The person moves review, changes, discard and request_publish (the page's buttons); Hermes may add
 notes, revise (after changes were asked for) and request_publish ("ask for his publish click").
 Only a status read back from WordPress sets published or scheduled: the desk never claims it.
+
+Kind ``campaign`` (v0.5) is a FluentCRM email campaign the FluentCRM pack drafted: its edit link opens
+FluentCRM's campaign editor, where the person sends it, and its status is read back from FluentCRM
+(scheduled while FluentCRM waits to send it, published once FluentCRM started sending).
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from typing import Any, Optional
 
 from .store import Store, StoreError, check_id, new_id, now_iso
 
-KINDS = ("new_post", "new_page", "staged_edit", "seo_fix", "build_page")
+KINDS = ("new_post", "new_page", "staged_edit", "seo_fix", "build_page", "campaign")
 STATES = ("waiting", "changes_requested", "reviewed", "publish_requested", "published", "scheduled", "applied",
           "discarded")
 OPEN = ("waiting", "changes_requested", "reviewed", "publish_requested")
@@ -43,8 +47,17 @@ class DeskError(ValueError):
     pass
 
 
+CAMPAIGN_SCHEDULED = ("scheduled", "pending-scheduled")
+CAMPAIGN_SENT = ("processing", "working", "paused", "archived")
+
+
 def edit_link(site_url: str, wp_id: Any) -> str:
     return f"{site_url.rstrip('/')}/wp-admin/post.php?post={int(wp_id)}&action=edit"
+
+
+def campaign_link(site_url: str, campaign_id: Any) -> str:
+    """FluentCRM's campaign editor for one campaign."""
+    return f"{site_url.rstrip('/')}/wp-admin/admin.php?page=fluentcrm-admin#/email/campaigns/{int(campaign_id)}"
 
 
 class Desk:
@@ -100,7 +113,8 @@ class Desk:
                 "source_id": int(source_id) if source_id else None, "title": str(title)[:200],
                 "created_by": created_by, "created_at": now_iso(), "updated_at": now_iso(), "state": "waiting",
                 "proof_id": None, "seo_id": None, "notes": [], "live_status": live_status,
-                "links": {"edit": edit_link(site_url, wp_id), "view": link}}
+                "links": {"edit": campaign_link(site_url, wp_id) if kind == "campaign" else edit_link(site_url, wp_id),
+                          "view": link}}
         if automation_run:  # the automation cron run that created it (lanes.automation_may_publish)
             item["automation_run"] = str(automation_run)
         if source_id:
@@ -159,9 +173,9 @@ class Desk:
                 if applied and item["kind"] in ("staged_edit", "seo_fix"):
                     item["state"] = "published"
                     item["live_status"] = "applied"
-                elif wp_status == "publish":
+                elif wp_status == "publish" or (item["kind"] == "campaign" and wp_status in CAMPAIGN_SENT):
                     item["state"] = "published"
-                elif wp_status == "future":
+                elif wp_status == "future" or (item["kind"] == "campaign" and wp_status in CAMPAIGN_SCHEDULED):
                     item["state"] = "scheduled"
                 elif not exists and item["kind"] == "staged_edit":
                     item["state"] = "published"  # the connector's Apply trashes the copy after applying it
@@ -183,6 +197,8 @@ class Desk:
     def read_back(self, client: Any, item: dict) -> dict:
         """Ask WordPress for the item's post now and record it (sync_live). Raises WPError except 404/410."""
         from .client import WPError
+        if item.get("kind") == "campaign":
+            return self._read_back_campaign(client, item)
         route = f"/wp-json/wp/v2/{item['wp_type']}s/{int(item['wp_id'])}"
         kw = {"context": "edit"} if client.authenticated else {}
         try:
@@ -201,10 +217,22 @@ class Desk:
         meta = post.get("meta") if isinstance(post.get("meta"), dict) else {}
         return self.sync_live(item["id"], post.get("status"), applied=bool(meta.get("_wpbruecke_applied")))
 
+    def _read_back_campaign(self, client: Any, item: dict) -> dict:
+        """FluentCRM's own status of the campaign (its campaign read, fcrm_read_emails)."""
+        from .client import WPError
+        try:
+            got = client.get(f"/wp-json/fluent-crm/v2/campaigns/{int(item['wp_id'])}")
+        except WPError as e:
+            if e.kind == "not_found":
+                return self.sync_live(item["id"], None, exists=False)
+            raise
+        campaign = got.get("campaign") if isinstance(got, dict) else None
+        return self.sync_live(item["id"], (campaign or {}).get("status"))
+
     def counts(self, site: str = "") -> dict:
         items = self.list(site=site, open_only=True)
         kinds = {"drafts": ("new_post", "new_page"), "staged": ("staged_edit",), "seo": ("seo_fix",),
-                 "build": ("build_page",)}
+                 "build": ("build_page",), "campaigns": ("campaign",)}
         out = {"all": len(items)}
         for label, ks in kinds.items():
             out[label] = sum(1 for i in items if i.get("kind") in ks)

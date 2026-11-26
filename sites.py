@@ -11,7 +11,9 @@ Shape::
     connect_ip: ""                     # advanced: connect here, keep the host name for TLS (constraint 10)
     group: ""                          # fleet filter chip
     label: ""                          # display name; empty = the site's own title
-    packs: {generatepress: false}
+    packs: {generatepress: false}      # registry ids only (packs/__init__.py); guarded: switching one on widens writes
+    design: {}                         # overrides only, over the live theme tokens: {colors: [{slug, name, value}],
+                                       # fonts: {body, headings}, logo}
     proof: {widths: [1440, 768, 390], extra_hosts: []}
     memory: {tone: "", languages: [], do_not_touch: [], notes: ""}
     automations:                       # recurring drafts (F14, D18 a)
@@ -35,6 +37,7 @@ import re
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
+from . import packs as packs_mod
 from . import yamlish
 from .store import Store, StoreError, check_id, now_iso
 
@@ -47,7 +50,7 @@ LEGACY_FIELDS = ("publishing", "never_publish_never_send", "agent_writes")
 LEVELS = ("read_public", "read", "drafts", "publish")
 # Fields that widen or redirect what the agent may do: an agent edit of these asks the user first
 # (hooks.py), and an unattended run may not change them at all.
-GUARDED_FIELDS = frozenset({"url", "login", "key_slot", "connect_ip", "automations"})
+GUARDED_FIELDS = frozenset({"url", "login", "key_slot", "connect_ip", "automations", "packs"})
 # A keyed site's url, login and key_slot come from its settings group; no tool or request body sets them.
 SETTINGS_FIELDS = frozenset({"url", "login", "key_slot"})
 # Written by WPBrücke itself: access by the page's Confirm, username by the connection check.
@@ -56,6 +59,8 @@ _FP_RE = re.compile(r"^[0-9a-f]{12}$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 _GSC_DOMAIN = re.compile(r"^sc-domain:[A-Za-z0-9.-]{1,253}$")
 _APP_RE = re.compile(r"^[a-z0-9]{8,40}$")
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,49}$")
+_CSS_COLOR_RE = re.compile(r"^(#[0-9A-Fa-f]{3,8}|(rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\)|[a-z]{3,20})$")
 # Desktop routes hermes://open/<page>?q in-app; a bare path or another scheme would open nothing.
 COCKPIT_ROUTE = "hermes://open/coolifybruecke"
 _SECRETISH = re.compile(r"(password|secret|token|app_?key|apikey)", re.I)
@@ -73,11 +78,16 @@ class DuplicateHost(SiteError):
     pass
 
 
+class UnknownPackError(SiteError):
+    code = "unknown_pack"
+
+
 def defaults(site_id: str = "") -> dict:
     return {
         "id": site_id, "url": "", "login": "", "username": "", "key_slot": 0, "access": None, "connect_ip": "",
         "group": "", "label": "",
-        "packs": {"generatepress": False},
+        "packs": {pid: False for pid in packs_mod.ids()},
+        "design": {},
         "proof": {"widths": list(DEFAULT_WIDTHS), "extra_hosts": []},
         "memory": {"tone": "", "languages": [], "do_not_touch": [], "notes": ""},
         "automations": [],
@@ -135,6 +145,43 @@ def _access(value: Any) -> Optional[dict]:
             "confirmed_at": str(value.get("confirmed_at") or "")[:40]}
 
 
+def _design(value: Any) -> dict:
+    """The person's design overrides: only the keys they set (colors, fonts, logo)."""
+    if value in (None, "", {}):
+        return {}
+    if not isinstance(value, dict) or set(value) - {"colors", "fonts", "logo"}:
+        raise SiteError("design has colors, fonts and logo (overrides of the theme's own tokens)")
+    out: dict = {}
+    colors = value.get("colors") or []
+    if not isinstance(colors, list) or len(colors) > 30:
+        raise SiteError("design.colors is a list of at most 30 {slug, name, value}")
+    clean, seen = [], set()
+    for c in colors:
+        if not isinstance(c, dict) or set(c) - {"slug", "name", "value"}:
+            raise SiteError("each design colour is {slug, name, value}")
+        slug, val = str(c.get("slug") or "").strip().lower(), str(c.get("value") or "").strip()
+        if not _SLUG_RE.match(slug) or slug in seen:
+            raise SiteError(f"design colour slug {slug!r}: a unique lowercase slug")
+        if not _CSS_COLOR_RE.match(val):
+            raise SiteError(f"design colour {slug}: value must be a CSS colour such as #1a2b3c")
+        seen.add(slug)
+        clean.append({"slug": slug, "name": str(c.get("name") or slug).strip()[:100], "value": val})
+    if clean:
+        out["colors"] = clean
+    fonts = value.get("fonts") or {}
+    if not isinstance(fonts, dict) or set(fonts) - {"body", "headings"}:
+        raise SiteError("design.fonts has body and headings")
+    fonts = {k: str(v).strip()[:100] for k, v in fonts.items() if str(v or "").strip()}
+    if fonts:
+        out["fonts"] = fonts
+    logo = str(value.get("logo") or "").strip()
+    if logo:
+        if not (logo.startswith("https://") or logo.startswith("http://")) or len(logo) > 500:
+            raise SiteError("design.logo is the logo's URL (https://...)")
+        out["logo"] = logo
+    return out
+
+
 def validate(raw: dict) -> dict:
     """A complete, checked site dict, or SiteError naming the first problem."""
     if not isinstance(raw, dict):
@@ -178,10 +225,11 @@ def validate(raw: dict) -> dict:
     if app and not _APP_RE.match(app):
         raise SiteError("cockpit_app is a Coolify app uuid (letters and digits)")
     site["cockpit_app"] = app
-    packs = raw.get("packs") or {}
-    if not isinstance(packs, dict) or set(packs) - {"generatepress"}:
-        raise SiteError("packs knows only generatepress: true|false")
-    site["packs"] = {"generatepress": _bool(packs.get("generatepress", False), "packs.generatepress")}
+    try:
+        site["packs"] = packs_mod.validate_site_packs(raw.get("packs"), _bool)
+    except packs_mod.UnknownPack as e:
+        raise UnknownPackError(str(e)) from None
+    site["design"] = _design(raw.get("design"))
     proof = raw.get("proof") or {}
     if not isinstance(proof, dict) or set(proof) - {"widths", "extra_hosts"}:
         raise SiteError("proof has widths and extra_hosts")

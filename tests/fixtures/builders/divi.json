@@ -1,0 +1,99 @@
+{
+ "builder": "divi",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "Divi 4 shortcodes in the stored body",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "[et_pb_section fb_built=\"1\" _builder_version=\"4.27.0\"][et_pb_row][et_pb_column type=\"4_4\"][et_pb_text]<p>Welcome</p>[/et_pb_text][/et_pb_column][/et_pb_row][/et_pb_section]",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "divi",
+    "source": "markup",
+    "evidence": "marker [et_pb_"
+   }
+  },
+  {
+   "name": "Divi 5 blocks in the stored body",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<!-- wp:divi/section {\"builderVersion\":\"5.0.0\"} --><!-- wp:divi/row --><!-- wp:divi/column {\"type\":{\"desktop\":{\"value\":\"4_4\"}}} --><!-- wp:divi/text {\"content\":{\"innerContent\":{\"desktop\":{\"value\":\"<p>Welcome</p>\"}}}} /--><!-- /wp:divi/column --><!-- /wp:divi/row --><!-- /wp:divi/section -->",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "divi",
+    "source": "markup",
+    "evidence": "marker <!-- wp:divi/"
+   }
+  },
+  {
+   "name": "rendered body, read without a key",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "rendered": "<div class=\"et-l et-l--post\"><div class=\"et_builder_inner_content et_pb_gutters3\"><div class=\"et_pb_section et_pb_section_0 et_section_regular\"><p>Welcome</p></div></div></div>"
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "divi",
+    "source": "markup",
+    "evidence": "rendered et-l--post"
+   }
+  },
+  {
+   "name": "connector field",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<p>x</p>",
+     "rendered": ""
+    },
+    "meta": {},
+    "wpbruecke_builder": {
+     "id": "divi",
+     "evidence": [
+      "meta _et_pb_use_builder=on"
+     ]
+    }
+   },
+   "expect": {
+    "id": "divi",
+    "source": "connector",
+    "evidence": "meta _et_pb_use_builder=on"
+   }
+  }
+ ]
+}

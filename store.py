@@ -17,7 +17,8 @@ Layout under the data dir (``ctx.state.data_dir`` in the agent half, the same fo
     build/<run>.json                            GeneratePress pack runs
     groups/<n>.json, groups/<n>.check.json      pairing record and last connection check per group
     migration/<site>.json, migration/done.json  what a 0.1.0 site file said, and the migration marker
-    locks/<store>.lock                          one lock file per store
+    logs/<site>.jsonl                           the write log, one JSON line per write or refusal (activity.py)
+    locks/<store>.lock                          one lock file per store; locks/logs-<site>.lock per site log
 """
 from __future__ import annotations
 

@@ -3,11 +3,13 @@
 Sources (PLAN constraint 7, P1, P6, P9, P10):
 - public, no key: ``/wp-json/`` (name, namespaces, routes, auth methods, REST time), the home page's
   HTML (WordPress version meta, theme and plugin slugs, robots meta, description, canonical, the
-  third-party hosts it names), ``/robots.txt``, ``/wp-sitemap.xml``;
+  third-party hosts it names) and its ``health`` (health.py), ``/robots.txt``, ``/wp-sitemap.xml``;
 - with the site's key: ``users/me?context=edit`` (user, roles, rights), the application password's
   name, the active theme, plugins (admin only), counts of drafts, pending posts and held comments;
 - the connector, when ``wpbruecke/v1`` is in the namespaces: its version and premium update counts;
-- ``api.wordpress.org`` for the newest core, plugin and theme versions (no key; cached a day).
+- with the key, when ``wp-abilities/v1`` is in the namespaces: the site's ability listing (abilities.py);
+- ``api.wordpress.org`` for the newest core, plugin and theme versions (no key; cached a day); with the
+  connector's list they become ``updates["offers"]``, one per key.
 
 The cache file ``facts/<site>.json`` is refreshed at most every ``MAX_AGE_S`` unless forced, so the
 fleet page, the doctor and the tick share one read per five minutes per site.
@@ -22,12 +24,14 @@ from html.parser import HTMLParser
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
+from . import health as health_mod
 from .client import WordPressClient, WPError
 from .store import Store, now_iso
 
 MAX_AGE_S = 300
 WPORG_MAX_AGE_S = 86400
 CONNECTOR_NS = "wpbruecke/v1"
+ABILITIES_NS = "wp-abilities/v1"
 RIGHTS = {"draft": "edit_posts", "upload": "upload_files", "publish": "publish_posts",
           "edit_published": "edit_published_posts", "edit_others": "edit_others_posts",
           "manage": "manage_options", "install": "install_plugins", "moderate": "moderate_comments"}
@@ -120,6 +124,7 @@ class WporgVersions:
     def __init__(self, store: Store, fetch: Optional[Callable[[str], Any]] = None, clock=time.time) -> None:
         self.store, self.clock = store, clock
         self._fetch = fetch or self._default_fetch
+        self.failures = 0
 
     @staticmethod
     def _default_fetch(url: str) -> Any:
@@ -136,6 +141,7 @@ class WporgVersions:
         try:
             value = pick(self._fetch(url))
         except Exception:
+            self.failures += 1
             return hit.get("v") if hit else None
         with self.store.lock("facts"):
             cache = self.store.read_json(path, {}) or {}
@@ -191,6 +197,7 @@ def gather(site: dict, client: WordPressClient, wporg: Optional[WporgVersions] =
         facts["connector_ns"] = CONNECTOR_NS in facts["namespaces"]
     home = _safe(lambda: client.raw("GET", "/", auth=False), errors, "home")
     seo: dict = {}
+    facts["health"] = health_mod.from_response(home)
     if home is not None:
         facts["home_status"] = home.status
         facts["home_ms"] = home.ms
@@ -243,12 +250,32 @@ def gather(site: dict, client: WordPressClient, wporg: Optional[WporgVersions] =
         if isinstance(info, dict):
             facts["connector"] = {k: info.get(k) for k in ("version", "role", "preview", "seo_field", "seo_plugin",
                                                           "updates", "review_screen") if k in info}
+    if client.authenticated and ABILITIES_NS in (facts.get("namespaces") or []):
+        abilities(facts, client)
     if wporg is not None and facts.get("reachable"):
         facts["updates"] = updates(facts, wporg)
     return facts
 
 
+def abilities(facts: dict, client: WordPressClient) -> None:
+    """The site's ability listing (v0.5 PK1): ``abilities`` holds counts per namespace for the page and
+    the doctor, ``_abilities`` the listing itself (names, labels, schemas, annotations) for wp_pack. A
+    failed read leaves the reason in ``abilities.error`` and no listing."""
+    from . import abilities as abilities_mod
+    try:
+        found = abilities_mod.discover(client)
+    except WPError as e:
+        facts["abilities"] = {"count": None, "namespaces": {}, "error": e.to_dict()}
+        return
+    facts["abilities"] = abilities_mod.summary(found)
+    facts["_abilities"] = [a.to_dict() for a in found]
+
+
 def updates(facts: dict, wporg: WporgVersions) -> dict:
+    """Pending updates. ``offers`` holds one UpdateOffer per key, sorted; the connector's item replaces
+    the wordpress.org one (premium plugins), so nothing is counted twice. ``complete`` is False when an
+    api.wordpress.org read failed (a stale or missing version then cannot prove an offer is gone)."""
+    failures_before = getattr(wporg, "failures", 0)
     out: dict = {"core": None, "plugins": [], "themes": [], "source": "api.wordpress.org"}
     latest_core = wporg.core()
     if newer(facts.get("wp_version"), latest_core):
@@ -262,12 +289,39 @@ def updates(facts: dict, wporg: WporgVersions) -> dict:
         latest = wporg.theme(facts["theme"])
         if newer(facts.get("theme_version"), latest):
             out["themes"].append({"slug": facts["theme"], "installed": facts["theme_version"], "latest": latest})
+    offers: dict = {}
+
+    def offer(key: str, item: Any, source: str) -> None:
+        if isinstance(item, dict) and item.get("latest"):
+            offers[key] = {"key": key, "installed": str(item.get("installed") or ""), "offered": str(item["latest"]),
+                           "source": source}
+
+    offer("core:wordpress", out["core"], "wporg")
+    for p in out["plugins"]:
+        offer(f"plugin:{p['slug']}", p, "wporg")
+    for t in out["themes"]:
+        offer(f"theme:{t['slug']}", t, "wporg")
     conn = (facts.get("connector") or {}).get("updates")
     if isinstance(conn, dict):
         out["connector"] = conn  # premium plugins report through the connector (WordPress' own transients)
-    out["count"] = (1 if out["core"] else 0) + len(out["plugins"]) + len(out["themes"]) + int(
-        (conn or {}).get("count") or 0 if isinstance(conn, dict) else 0)
+        offer("core:wordpress", conn.get("core"), "connector")
+        for p in conn.get("plugins") or []:
+            if isinstance(p, dict) and p.get("slug"):
+                offer(f"plugin:{p['slug']}", p, "connector")
+        for t in conn.get("themes") or []:
+            if isinstance(t, dict) and t.get("slug"):
+                offer(f"theme:{t['slug']}", t, "connector")
+    out["offers"] = [offers[k] for k in sorted(offers)]
+    out["complete"] = getattr(wporg, "failures", 0) == failures_before
+    out["count"] = len(out["offers"])
     return out
+
+
+def offer_name(o: dict) -> str:
+    kind, _, slug = str(o.get("key") or "").partition(":")
+    if kind == "core":
+        return f"WordPress {o.get('offered')}"
+    return f"{'theme ' if kind == 'theme' else ''}{slug} {o.get('offered')}"
 
 
 class FactsCache:

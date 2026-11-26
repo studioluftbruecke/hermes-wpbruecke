@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from . import packs as packs_mod
 from .facts import can_change_live
 
 
@@ -20,7 +21,7 @@ class FeatureRule:
     rights: tuple = ()            # every right needed (facts.RIGHTS keys)
     keyed: bool = False           # needs a key at all
     connector: bool = False       # needs the WPBrücke connector on the site
-    pack: str = ""                # needs this pack switched on in the site file
+    pack: str = ""                # needs this pack (a packs.REGISTRY id) switched on in the site file
     fix: str = ""                 # what lights it, in plain words
 
 
@@ -48,9 +49,20 @@ FEATURES = (
                 fix="plugin lists need an administrator key; premium plugins need the connector"),
     FeatureRule("counts", "Drafts, pending posts and held comments", rights=("draft",), keyed=True,
                 fix="add a key of a user that can edit posts"),
-    FeatureRule("build_run", "GeneratePress pack: build runs as GenerateBlocks drafts", rights=("draft",), keyed=True,
-                pack="generatepress", fix="switch the GeneratePress pack on for this site (packs.generatepress: true)"),
 )
+
+
+def _pack_rules() -> tuple:
+    out = []
+    for pid in packs_mod.ids():
+        spec = packs_mod.REGISTRY[pid]
+        for f in spec.features:
+            out.append(FeatureRule(f.key, f.label, rights=f.rights, keyed=f.keyed, connector=f.connector, pack=pid,
+                                   fix=f"switch the {spec.label} pack on for this site (packs.{pid}: true)"))
+    return tuple(out)
+
+
+FEATURES = FEATURES + _pack_rules()
 BY_KEY = {f.key: f for f in FEATURES}
 
 
@@ -77,7 +89,7 @@ def check(rule: FeatureRule, site: dict, facts: dict, held: Optional[str] = None
         return f"the key's user lacks {', '.join(missing)}; {fix}"
     if rule.connector and not _connector(facts):
         return f"the connector is not installed; {rule.fix}"
-    if rule.pack and not (site.get("packs") or {}).get(rule.pack):
+    if rule.pack and not packs_mod.is_on(site, rule.pack):
         return f"the {rule.pack} pack is off; {rule.fix}"
     return None
 

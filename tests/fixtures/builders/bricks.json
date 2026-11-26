@@ -1,0 +1,85 @@
+{
+ "builder": "bricks",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "a site that opens Bricks' meta to REST (forum sample shape)",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "",
+     "rendered": ""
+    },
+    "meta": {
+     "footnotes": "",
+     "_bricks_page_content_2": null,
+     "_bricks_template_type": "content",
+     "_bricks_editor_mode": "bricks"
+    }
+   },
+   "expect": {
+    "id": "bricks",
+    "source": "rest_meta",
+    "evidence": "meta _bricks_editor_mode=bricks"
+   }
+  },
+  {
+   "name": "Bricks theme, meta not in REST, empty body",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "facts": {
+    "theme": "bricks"
+   },
+   "expect": {
+    "id": "unknown_builder",
+    "source": "markup",
+    "evidence": "the site runs Bricks"
+   }
+  },
+  {
+   "name": "connector field",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "",
+     "rendered": ""
+    },
+    "meta": {},
+    "wpbruecke_builder": {
+     "id": "bricks",
+     "evidence": [
+      "meta _bricks_editor_mode=bricks"
+     ]
+    }
+   },
+   "expect": {
+    "id": "bricks",
+    "source": "connector"
+   }
+  }
+ ]
+}

@@ -107,7 +107,7 @@ def result(n: int, state: str, host: str = "", site_id: Optional[str] = None, se
 _FRAME = ("group", "state", "ok", "message", "next", "host", "site_id", "checked_at")
 
 
-def judge(res: dict, access: Optional[dict], reason: str = "", settings_href: str = "") -> dict:
+def judge(res: dict, access: Optional[dict], reason: str = "", settings_href: str = "", legacy_fp: str = "") -> dict:
     """Step 8: the result's state from the live level and the recorded access."""
     fields = {k: v for k, v in res.items() if k not in _FRAME}
     fields["access"] = access
@@ -123,12 +123,13 @@ def judge(res: dict, access: Optional[dict], reason: str = "", settings_href: st
             return to("stopped", reason=_refused_reason(access, level, reason, res.get("role")))
         fields.update(level=None, effective=None)
         return to("refused", reason=reason or access_mod.REFUSED_ADMIN)
-    eff, _ = access_mod.effective(access, level, res.get("caps_fp") or "")
+    fps = (res.get("caps_fp") or "", legacy_fp)
+    eff, _ = access_mod.effective(access, level, fps)
     fields["effective"] = eff
     if eff == "unconfirmed":
         return to("needs_confirm")
     if eff == "stopped":
-        return to("stopped", reason=access_mod.stop_reason(access, level, res.get("caps_fp") or ""))
+        return to("stopped", reason=access_mod.stop_reason(access, level, fps))
     return to(eff)
 
 
@@ -306,7 +307,8 @@ def check(group: groups_mod.Group, record: Optional[groups_mod.PairingRecord], s
                   caps_fp=access_mod.caps_fingerprint(caps, roles), uploads=access_mod.uploads(caps),
                   connector=connector, level_words=access_mod.level_words(level, caps))
     # 8. compare with what the person confirmed
-    return Outcome(judge(base, access, reason, settings_href), rec, username)
+    return Outcome(judge(base, access, reason, settings_href, access_mod.legacy_caps_fingerprint(caps, roles)), rec,
+                   username)
 
 
 def run_check(rt: Any, n: int, settings_href: str = "", legacy: Optional[Callable[[str], Any]] = None) -> dict:
@@ -325,6 +327,10 @@ def run_check(rt: Any, n: int, settings_href: str = "", legacy: Optional[Callabl
         rt.records.put(out.record)
     if mine is not None and out.username and mine.get("username") != out.username:
         rt.sites.update(mine["id"], {"username": out.username}, "check")
+        from . import activity
+        activity.for_runtime(rt, site=mine["id"], tool="check", action="record_user", wp_type="site_file",
+                             label=mine["id"], lane="desk", who="check", result="ok",
+                             summary=f"the connection check recorded the WordPress user {out.username} in the site file")
     res = out.result
     if mine is not None and legacy is not None:
         res["migrated"] = legacy(mine["id"])

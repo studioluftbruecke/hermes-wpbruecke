@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+from .. import activity as activity_mod
+from .. import packs as packs_mod
 from ..client import WPError
 from ..desk import Desk, DeskError
 from ..runtime import NotFound, Runtime
@@ -59,9 +61,9 @@ def _save(rt: Runtime, run: dict) -> dict:
 
 def _pack_site(rt: Runtime, site_id: str) -> dict:
     site = rt.site(site_id)
-    if not (site.get("packs") or {}).get("generatepress"):
+    if not packs_mod.is_on(site, "generatepress"):
         raise ValueError(f"the GeneratePress pack is off for {site_id}; the person switches it on in the site's "
-                         "settings (packs.generatepress: true)")
+                         f"settings (packs.generatepress: true). {packs_mod.REGISTRY['generatepress'].scope}")
     return site
 
 
@@ -74,8 +76,8 @@ def _gb_active(facts: dict) -> bool:
 
 def draft_args(rt: Runtime, args: dict) -> dict:
     """The wp_draft call a build_page becomes (the gate approves exactly this)."""
-    from ..gp import blocks
-    from ..gp.build import BuildError
+    from ..packs.generatepress import blocks
+    from ..packs.generatepress.build import BuildError
     run = _load(rt, str(args.get("run") or ""))
     site = _pack_site(rt, run["site"])
     pages = next(s for s in run["steps"] if s["key"] == "pages")
@@ -93,8 +95,8 @@ def draft_args(rt: Runtime, args: dict) -> dict:
 
 
 def handle(rt: Runtime, args: dict, run_draft: Optional[Callable[[dict], dict]] = None,
-           approved_brand: bool = False) -> dict:
-    from ..gp import build as gp_build
+           approved_brand: bool = False, who: str = "agent") -> dict:
+    from ..packs.generatepress import build as gp_build
     action = str(args.get("action") or "")
     if action not in ACTIONS:
         return {"ok": False, "error": "bad_args", "message": f"action must be one of {', '.join(ACTIONS)}"}
@@ -126,24 +128,9 @@ def handle(rt: Runtime, args: dict, run_draft: Optional[Callable[[dict], dict]] 
             site = rt.site(run["site"])
             return {"ok": True, "guide": gp_build.handoff_guide(run, items, site_url=site["url"])}
         if action == "set_brand":
-            colors = [c for c in args.get("colors") or [] if isinstance(c, dict)]
-            run["brand"] = {"colors": colors, "fonts": args.get("fonts") or run.get("brand", {}).get("fonts") or {}}
-            site = rt.site(run["site"])
-            refusal = rt.require(site, "build_write")
-            if refusal is not None:
-                return refusal.to_dict()
-            facts = rt.site_facts(site)
-            note = "brand saved in the build run"
-            if facts.get("connector") or facts.get("connector_ns"):
-                if not approved_brand:
-                    return {"ok": False, "error": "not_approved", "message": "Staging the brand needs the person's "
-                            "approval in Hermes (no card was answered for this exact call). Nothing was sent."}
-                staged = rt.client(site).post("/wp-json/wpbruecke/v1/gp/brand", {"colors": colors, "fonts": run["brand"]["fonts"]})
-                note = f"brand staged on the site; the person applies it on the review screen: {staged.get('review_url')}"
-            else:
-                note += "; without the connector the person sets the colours in Customizer (Colors)"
-            _save(rt, run)
-            return {"ok": True, "run": run, "note": note}
+            out, result = _set_brand(rt, args, run, approved_brand)
+            log_brand(rt, args, out, result, who, site=run.get("site"))
+            return out
         if action == "build_page":
             if run_draft is None:
                 return {"ok": False, "error": "internal", "message": "build_page needs the draft lane"}
@@ -160,3 +147,46 @@ def handle(rt: Runtime, args: dict, run_draft: Optional[Callable[[dict], dict]] 
     except WPError as e:
         return {"ok": False, **e.to_dict()}
     return {"ok": False, "error": "bad_args", "message": "unhandled"}
+
+
+def _set_brand(rt: Runtime, args: dict, run: dict, approved: bool) -> "tuple[dict, str]":
+    """set_brand's answer and its write-log result (ok, refused, error)."""
+    colors = [c for c in args.get("colors") or [] if isinstance(c, dict)]
+    run["brand"] = {"colors": colors, "fonts": args.get("fonts") or run.get("brand", {}).get("fonts") or {}}
+    try:
+        site = rt.site(run["site"])
+        refusal = rt.require(site, "build_write")
+        if refusal is not None:
+            return refusal.to_dict(), "refused"
+        facts = rt.site_facts(site)
+        note = "brand saved in the build run"
+        if facts.get("connector") or facts.get("connector_ns"):
+            if not approved:
+                return {"ok": False, "error": "not_approved", "message": "Staging the brand needs the person's "
+                        "approval in Hermes (no card was answered for this exact call). Nothing was sent."}, "refused"
+            staged = rt.client(site).post("/wp-json/wpbruecke/v1/gp/brand", {"colors": colors, "fonts": run["brand"]["fonts"]})
+            note = f"brand staged on the site; the person applies it on the review screen: {staged.get('review_url')}"
+        else:
+            note += "; without the connector the person sets the colours in Customizer (Colors)"
+    except NotFound as e:
+        return {"ok": False, "error": "not_found", "message": str(e)}, "refused"
+    except WPError as e:
+        return {"ok": False, **e.to_dict()}, "error"
+    _save(rt, run)
+    return {"ok": True, "run": run, "note": note}, "ok"
+
+
+@activity_mod.quiet
+def log_brand(rt: Runtime, args: dict, out: dict, result: str, who: str = "agent", site: Any = None) -> None:
+    """One write-log line for set_brand (staged on the site through the connector, or kept in the run)."""
+    if site is None:
+        try:
+            site = _load(rt, str(args.get("run") or ""))["site"]
+        except ValueError:
+            return
+    names = ", ".join(str(c.get("slug") or c.get("name") or "") for c in args.get("colors") or [] if isinstance(c, dict))
+    summary = (str(out.get("note") or "brand saved") + (f" (colours: {names})" if names else "")) if result == "ok" else \
+        "set_brand refused: " + str(out.get("message") or out.get("error") or "").split(". ")[0]
+    activity_mod.for_runtime(rt, site=str(site or ""), tool="wp_build", action="set_brand", wp_type="brand",
+                         label=f"build run {args.get('run')}", lane="chat", who=who, result=result,
+                         code=out.get("error"), summary=summary)

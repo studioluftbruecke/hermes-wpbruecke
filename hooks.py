@@ -20,7 +20,6 @@ from typing import Any, Callable, Optional
 
 RULE_PREFIX = "plugin_rule:"
 RULE_NS = "wpbruecke:"
-GATED_TOOLS = ("wp_draft", "wp_sites", "wp_seo", "wp_build")
 
 
 class Tickets:

@@ -188,6 +188,11 @@ def site_history(site_id: str) -> JSONResponse:
     return _reply(_api().site_history(_rt(), site_id))
 
 
+@router.get("/sites/{site_id}/activity")
+def site_activity(site_id: str) -> JSONResponse:
+    return _reply(_api().site_activity(_rt(), site_id))
+
+
 @router.get("/desk")
 def desk(site: str = Query(""), kind: str = Query("")) -> JSONResponse:
     return _reply(_api().desk_list(_rt(), site, kind))
@@ -266,3 +271,17 @@ def build_gate(run_id: str, body: dict = Body(default={})) -> JSONResponse:
 @router.get("/doctor")
 def doctor(site: str = Query("")) -> JSONResponse:
     return _reply(_api().doctor(_rt(), site))
+
+
+def _workspace() -> str:
+    """``ssh`` when the profile's terminal backend is SSH: Desktop's file reads then go to that machine
+    (Hermes' files router picks its reader by the same setting)."""
+    from hermes_cli.config import load_config_readonly
+
+    terminal = (load_config_readonly() or {}).get("terminal") or {}
+    return "ssh" if str(terminal.get("backend") or "local").strip().lower() == "ssh" else "host"
+
+
+@router.post("/connector-package")
+def connector_package() -> JSONResponse:
+    return _reply(_api().connector_package(_data_dir(), _workspace()))

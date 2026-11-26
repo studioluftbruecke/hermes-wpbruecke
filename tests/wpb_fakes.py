@@ -3,13 +3,29 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
+import shutil
 import sys
 from urllib.parse import parse_qs, urlparse
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PKG = "wpbruecke_under_test"
+
+
+def php_command() -> list | None:
+    """A PHP 8 command: WPB_PHP, php on PATH, or the official alpine image's binary the lint script uses."""
+    if os.environ.get("WPB_PHP"):
+        return [os.environ["WPB_PHP"]]
+    if shutil.which("php"):
+        return ["php"]
+    base = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / "fakedocker" / "bases" / "php_8.3-cli-alpine"
+    loader = sorted((base / "lib").glob("ld-musl-*.so.1")) if base.is_dir() else []
+    if loader and (base / "usr" / "local" / "bin" / "php").exists():
+        return [str(loader[0]), "--library-path", f"{base}/lib:{base}/usr/lib:{base}/usr/local/lib",
+                str(base / "usr" / "local" / "bin" / "php")]
+    return None
 
 
 def load_plugin():
@@ -255,3 +271,91 @@ def create_paired(rt, fields: dict, author: str = "person", confirmed: bool = Tr
         if confirmed:
             confirm(rt, fields["id"])
     return res
+
+
+# --- v0.3 watcher: api.wordpress.org, the connector's update list, the home page's health ----------
+
+class WporgFake:
+    """api.wordpress.org: newest versions per kind, a switch that fails every read, and a clock that moves
+    two days per read so the facts' day cache never hides a change between ticks."""
+
+    def __init__(self, core: str = "7.1.4", plugins: dict | None = None, themes: dict | None = None) -> None:
+        self.core, self.plugins, self.themes = core, dict(plugins or {}), dict(themes or {})
+        self.fail = False
+        self.reads = 0
+        self._t = 0.0
+
+    def fetch(self, url: str):
+        self.reads += 1
+        if self.fail:
+            raise OSError("api.wordpress.org did not answer")
+        if "core/version-check" in url:
+            return {"offers": [{"current": self.core}]}
+        slug = (parse_qs(urlparse(url).query).get("request[slug]") or [""])[0]
+        table = self.plugins if "/plugins/" in url else self.themes
+        return {"version": table[slug]} if slug in table else {"error": "Not found."}
+
+    def clock(self) -> float:
+        self._t += 2 * 86400
+        return self._t
+
+    def attach(self, rt) -> "WporgFake":
+        rt.wporg = mod("facts").WporgVersions(rt.store, fetch=self.fetch, clock=self.clock)
+        return self
+
+    @staticmethod
+    def forget(rt) -> None:
+        """Drop the day cache, as a new day or a fresh install does."""
+        path = rt.store.path("facts", "_wporg.json")
+        if path.exists():
+            path.unlink()
+
+
+CONNECTOR_NAMESPACES = ["oembed/1.0", "wp/v2", "wp-site-health/v1", "wp-abilities/v1", "wpbruecke/v1"]
+
+
+def connector_updates(fake: FakeWP, plugins: dict | None = None, themes: dict | None = None,
+                      core: str | None = None, installed: str = "1.0") -> None:
+    """The connector's /info with the update list it reads from WordPress' transients (premium plugins
+    included): ``plugins`` and ``themes`` map slug to the offered version."""
+    ups = {"core": {"installed": "7.1.4", "latest": core} if core else None,
+           "plugins": [{"slug": k, "installed": installed, "latest": v} for k, v in (plugins or {}).items()],
+           "themes": [{"slug": k, "installed": installed, "latest": v} for k, v in (themes or {}).items()]}
+    ups["count"] = len(ups["plugins"]) + len(ups["themes"]) + (1 if core else 0)
+    fake.routes[("GET", "/wp-json/wpbruecke/v1/info")] = FakeWP.j(200, {"version": "0.2.1", "updates": ups})
+
+
+# WordPress' wp_die page as core renders it (German site: the markup ids stay English).
+WP_ERROR_PAGE = """<!DOCTYPE html>
+<html lang="de-DE"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width"><meta name='robots' content='noindex, follow' />
+<title>WordPress &rsaquo; Fehler</title></head>
+<body id="error-page">\n\t<div class="wp-die-message"><p>Es gab einen kritischen Fehler auf deiner Website.</p>
+<p><a href="https://wordpress.org/documentation/article/faq-troubleshooting/">Erfahre mehr über die Fehlerbehebung in WordPress.</a></p></div></body></html>"""
+WP_MAINTENANCE_PAGE = WP_ERROR_PAGE.replace(
+    "Es gab einen kritischen Fehler auf deiner Website.", "Wegen Wartungsarbeiten ist dies vorübergehend nicht verfügbar.")
+
+
+def home_fault(fake: FakeWP, mode: str) -> None:
+    """What the public home page answers. ``fatal``: 500 with the error page while REST still answers (a
+    front-end fatal); ``maintenance``: WordPress' maintenance mode, 503 with Retry-After on every URL;
+    ``plain500``, ``plain503`` (no Retry-After), ``die200`` (the error page with 200); ``off`` restores."""
+    for key in (("GET", "/"), ("GET", "/wp-json/")):
+        fake.routes.pop(key, None)
+    fake.__dict__.pop("default", None)
+    html_h = {"Content-Type": "text/html; charset=utf-8"}
+    if mode == "fatal":
+        fake.routes[("GET", "/")] = (500, html_h, WP_ERROR_PAGE.encode())
+    elif mode == "maintenance":
+        answer = (503, {**html_h, "Retry-After": "600"}, WP_MAINTENANCE_PAGE.encode())
+        fake.routes[("GET", "/")] = answer
+        fake.routes[("GET", "/wp-json/")] = answer
+        fake.default = lambda method, parsed, headers, body: answer
+    elif mode == "plain500":
+        fake.routes[("GET", "/")] = (500, html_h, b"<html><body>Internal Server Error</body></html>")
+    elif mode == "plain503":
+        fake.routes[("GET", "/")] = (503, html_h, b"<html><body>Service Unavailable</body></html>")
+    elif mode == "die200":
+        fake.routes[("GET", "/")] = (200, html_h, WP_ERROR_PAGE.encode())
+    elif mode != "off":
+        raise ValueError(mode)

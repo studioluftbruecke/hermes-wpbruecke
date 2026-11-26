@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       WPBrücke Connector
- * Description:       Companion for the WPBrücke Hermes plugin: a reader role (reads drafts, every write refused over REST and XML-RPC), a drafter role (Contributor plus uploads), signed preview links for drafts, SEO title and description fields, update counts and a review screen where your own login publishes or applies staged changes. It never publishes on its own.
- * Version:           0.2.1
+ * Description:       Companion for the WPBrücke Hermes plugin: a reader role (reads drafts, every write refused over REST and XML-RPC), a drafter role (Contributor plus uploads), two WooCommerce shop roles (draft products only, or also publish products), a FluentCRM screen where an administrator decides what Hermes may do in FluentCRM, signed preview links for drafts, SEO title and description fields, update counts, the page builder of each post, and a review screen where your own login publishes or applies staged changes. It never publishes on its own.
+ * Version:           0.5.0
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Author:            Studio Luftbrücke
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPBRUECKE_CONNECTOR_VERSION', '0.2.1' );
+define( 'WPBRUECKE_CONNECTOR_VERSION', '0.5.0' );
 define( 'WPBRUECKE_CONNECTOR_FILE', __FILE__ );
 
 require_once __DIR__ . '/includes/role.php';
@@ -28,6 +28,10 @@ require_once __DIR__ . '/includes/updates.php';
 require_once __DIR__ . '/includes/review.php';
 require_once __DIR__ . '/includes/abilities.php';
 require_once __DIR__ . '/includes/rest.php';
+require_once __DIR__ . '/includes/builders.php';
+require_once __DIR__ . '/includes/elementor.php';
+require_once __DIR__ . '/includes/shop.php';
+require_once __DIR__ . '/includes/fluentcrm.php';
 
 /**
  * Activation: the reader and drafter roles and the preview secret.
@@ -43,11 +47,13 @@ register_activation_hook( __FILE__, 'wpbruecke_activate' );
 /**
  * Deactivation on one site: rotate the preview secret, so every preview link handed out so far stops
  * working, remove the reader role, whose write guards stop with the plugin (its users keep no rights),
- * and forget the synced version, so the next activation or request syncs the roles again.
+ * take back the FluentCRM permissions the connector's screen granted, and forget the synced version,
+ * so the next activation or request syncs the roles again.
  */
 function wpbruecke_deactivate_site() {
 	wpbruecke_preview_secret_rotate();
 	wpbruecke_remove_reader_role();
+	wpbruecke_fcrm_deactivate();
 	delete_option( 'wpbruecke_connector_version' );
 }
 

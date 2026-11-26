@@ -1,0 +1,107 @@
+{
+ "builder": "elementor",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "V3 page read with a key: Elementor's registered meta",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<p>fallback copy</p>",
+     "rendered": ""
+    },
+    "meta": {
+     "_elementor_edit_mode": "builder",
+     "_elementor_template_type": "wp-page",
+     "_elementor_data": "[{\"id\": \"a1b2c3d\", \"elType\": \"container\", \"settings\": {}, \"elements\": [{\"id\": \"e4f5a6b\", \"elType\": \"widget\", \"widgetType\": \"heading\", \"settings\": {\"title\": \"A heading\", \"header_size\": \"h2\"}, \"elements\": []}]}]",
+     "_elementor_page_settings": []
+    }
+   },
+   "expect": {
+    "id": "elementor",
+    "source": "rest_meta",
+    "evidence": "meta _elementor_edit_mode=builder"
+   }
+  },
+  {
+   "name": "the same page with the connector field",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<p>fallback copy</p>",
+     "rendered": ""
+    },
+    "meta": {
+     "_elementor_edit_mode": "builder"
+    },
+    "wpbruecke_builder": {
+     "id": "elementor",
+     "evidence": [
+      "meta _elementor_edit_mode=builder"
+     ]
+    }
+   },
+   "expect": {
+    "id": "elementor",
+    "source": "connector",
+    "evidence": "meta _elementor_edit_mode=builder"
+   }
+  },
+  {
+   "name": "rendered front-end markup, read without a key",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "rendered": "<div data-elementor-type=\"wp-page\" data-elementor-id=\"12\" class=\"elementor elementor-12\"><h2 class=\"elementor-heading-title\">A heading</h2></div>"
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "elementor",
+    "source": "markup",
+    "evidence": "rendered data-elementor-type"
+   }
+  },
+  {
+   "name": "edit mode switched back to the editor",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<!-- wp:paragraph --><p>x</p><!-- /wp:paragraph -->",
+     "rendered": ""
+    },
+    "meta": {
+     "_elementor_edit_mode": ""
+    }
+   },
+   "expect": {
+    "id": "blocks",
+    "source": "markup"
+   }
+  }
+ ]
+}

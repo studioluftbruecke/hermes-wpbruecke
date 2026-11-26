@@ -1,6 +1,8 @@
 <?php
 /**
- * Uninstall: remove the reader and drafter roles and every option the connector wrote.
+ * Uninstall: remove the connector's roles (reader, drafter, shop drafter, shop publisher) and every
+ * option the connector wrote. Deactivation already removed the reader and shop roles and the FluentCRM
+ * screen's option; uninstall removes them again in case a deactivation hook did not finish.
  *
  * Users who had only one of these roles keep their account but have no role afterwards.
  *
@@ -17,9 +19,13 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 function wpbruecke_uninstall_site() {
 	remove_role( 'wpbruecke_reader' );
 	remove_role( 'wpbruecke_drafter' );
+	remove_role( 'wpbruecke_shop_drafter' );
+	remove_role( 'wpbruecke_shop_publisher' );
 	delete_option( 'wpbruecke_preview_secret' );
 	delete_option( 'wpbruecke_staged_brand' );
 	delete_option( 'wpbruecke_connector_version' );
+	delete_option( 'wpbruecke_shop_roles' );
+	delete_option( 'wpbruecke_fluentcrm' );
 }
 
 if ( is_multisite() ) {

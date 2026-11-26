@@ -1,0 +1,31 @@
+{
+  "$schema": "https://playground.wordpress.net/blueprint-schema.json",
+  "meta": {
+    "title": "WPBrücke Connector",
+    "description": "The review screen for a draft copy that Hermes staged: the copy next to the live page it changes, and the Apply button.",
+    "author": "studioluftbruecke",
+    "categories": ["Content"]
+  },
+  "landingPage": "/wp-admin/admin.php?page=wpbruecke-review&post=1002",
+  "preferredVersions": {
+    "php": "8.3",
+    "wp": "latest"
+  },
+  "login": true,
+  "steps": [
+    {
+      "step": "installPlugin",
+      "pluginData": {
+        "resource": "wordpress.org/plugins",
+        "slug": "wpbruecke-connector"
+      },
+      "options": {
+        "activate": true
+      }
+    },
+    {
+      "step": "runPHP",
+      "code": "<?php\nrequire_once '/wordpress/wp-load.php';\n$hermes = wp_insert_user( array( 'user_login' => 'hermes', 'user_pass' => wp_generate_password( 32 ), 'user_email' => 'hermes@example.com', 'display_name' => 'Hermes', 'role' => 'wpbruecke_drafter' ) );\n$live = wp_insert_post( array( 'import_id' => 1001, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Opening hours', 'post_content' => \"<!-- wp:paragraph -->\\n<p>We are open Monday to Friday, 9 am to 5 pm.</p>\\n<!-- /wp:paragraph -->\" ) );\nwp_insert_post( array( 'import_id' => 1002, 'post_type' => 'page', 'post_status' => 'draft', 'post_author' => is_wp_error( $hermes ) ? 1 : $hermes, 'post_title' => 'Opening hours', 'post_content' => \"<!-- wp:paragraph -->\\n<p>We are open Monday to Saturday, 9 am to 6 pm.</p>\\n<!-- /wp:paragraph -->\", 'meta_input' => array( '_wpbruecke_source' => $live ) ) );\n"
+    }
+  ]
+}

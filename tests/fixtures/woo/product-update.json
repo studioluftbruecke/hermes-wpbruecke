@@ -1,0 +1,389 @@
+{
+ "items": [
+  {
+   "category": "woocommerce",
+   "description": "Update an existing product using supported catalog fields.",
+   "input_schema": {
+    "oneOf": [
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "id": {
+        "minimum": 1,
+        "type": "integer"
+       },
+       "name": {
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "id"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "id": {
+        "minimum": 1,
+        "type": "integer"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "physical"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Available stock quantity when product-level stock management is used.",
+        "type": "integer"
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "id": {
+        "minimum": 1,
+        "type": "integer"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "virtual"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Available stock quantity when product-level stock management is used.",
+        "type": "integer"
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "id": {
+        "minimum": 1,
+        "type": "integer"
+       },
+       "manage_stock": {
+        "type": "boolean"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "digital"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       },
+       "stock_quantity": {
+        "description": "Available stock quantity when product-level stock management is used.",
+        "type": "integer"
+       },
+       "stock_status": {
+        "enum": [
+         "instock",
+         "outofstock",
+         "onbackorder"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "button_text": {
+        "description": "Button text for affiliate products.",
+        "type": "string"
+       },
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "external_url": {
+        "description": "External destination URL for affiliate products.",
+        "format": "uri",
+        "type": "string"
+       },
+       "id": {
+        "minimum": 1,
+        "type": "integer"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "affiliate"
+        ],
+        "type": "string"
+       },
+       "regular_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "sale_price": {
+        "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+        "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$",
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "product_type_alias"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "description": {
+        "description": "Product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "grouped_products": {
+        "description": "Product IDs to include as children of a grouped product.",
+        "items": {
+         "minimum": 1,
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       "id": {
+        "minimum": 1,
+        "type": "integer"
+       },
+       "name": {
+        "type": "string"
+       },
+       "product_type_alias": {
+        "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+        "enum": [
+         "grouped"
+        ],
+        "type": "string"
+       },
+       "short_description": {
+        "description": "Short product description content. Safe HTML is allowed.",
+        "type": "string"
+       },
+       "sku": {
+        "type": "string"
+       },
+       "status": {
+        "enum": [
+         "draft",
+         "pending",
+         "private",
+         "publish",
+         "future"
+        ],
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "product_type_alias"
+      ],
+      "type": "object"
+     }
+    ],
+    "type": "object"
+   },
+   "label": "Update product",
+   "meta": {
+    "annotations": {
+     "destructive": true,
+     "idempotent": false,
+     "readonly": false
+    },
+    "show_in_rest": true
+   },
+   "name": "woocommerce/product-update",
+   "output_schema": {}
+  }
+ ],
+ "recorded": "2026-11-26, full harness (WordPress 7.1.5, WooCommerce 11.3.1), as the shop publisher; output_schema left out"
+}

@@ -7,6 +7,15 @@ and the handler build the same plan. Within the level no card is asked. ``status
 update stays ``draft`` or ``pending``; publishing is its own action. A change to a published post is
 staged as a new draft copy carrying ``_wpbruecke_source`` when the connector registers that meta;
 ``apply`` copies it onto the live post. Every publishing write is read back and the reading returned.
+
+Before any write, a body change is checked against the post as WordPress holds it: a page made with a
+page builder whose pack is not on keeps its body (``builder_page``, plan D20 a), and blocks of a namespace
+Hermes does not know are kept unless the call names them in ``drop_blocks`` (``unknown_blocks``, D21 a).
+
+An Elementor page on a site whose Elementor pack is on changes through ``elementor_edits`` (a list of
+``ElementorEdit``): ``stage`` copies the page through the connector's Elementor route and saves the edits on
+the copy, ``update`` saves them on a draft, ``apply`` sends the copy back through the connector's apply
+route (packs/elementor/).
 """
 from __future__ import annotations
 
@@ -18,6 +27,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import builders
+from .. import packs as packs_mod
+from ..packs.elementor import model as el_model
+from ..packs.elementor import pack as el_pack
+from ..packs.elementor import widgets as el_widgets
 from ..client import WPError
 from ..access import DRAFT_ACTIONS
 from ..desk import Desk, DeskError
@@ -46,7 +60,15 @@ SCHEMA = {
         "staged copy for a published post. Publish level only: action=publish (id) publishes a draft; "
         "action=schedule (id, date as local ISO time like 2026-12-01T09:00) schedules it; action=apply (item = the "
         "desk item of a staged copy, or id = the copy) copies title, content, excerpt and SEO fields onto the live "
-        "post and deletes the copy. These act without asking; each answer carries WordPress' read-back (status, "
+        "post and deletes the copy. A page made with a page builder (Elementor, Divi, WPBakery, Beaver Builder, "
+        "Bricks, Oxygen, Breakdance) whose pack is not on keeps its body: update, stage and apply refuse a content "
+        "change (builder_page) and still write title, excerpt, SEO fields and featured image. An Elementor page on a "
+        "site whose Elementor pack is on changes through elementor_edits instead of content (update on a draft, "
+        "stage on a published page; read the element ids and editable paths with wp_content get first): texts, "
+        "links and images of existing heading, text-editor, button, image, icon-list and call-to-action widgets "
+        "only; anything else is refused with the pack's scope. A content change that "
+        "would drop blocks of plugins WPBrücke does not know (Kadence, Spectra, ...) is refused (unknown_blocks) "
+        "unless drop_blocks names them. These act without asking; each answer carries WordPress' read-back (status, "
         "date, content hash). Every write lands on the review desk; run wp_proof on the desk item next. Scheduled "
         "jobs and one-shot runs are refused except the person's own recurring-draft automation for that site, "
         "which writes drafts and publishes only when the automation says publish: true, and then only the post "
@@ -68,6 +90,17 @@ SCHEMA = {
         "note": {"type": "string", "description": "a line for the desk item (what changed and why)"},
         "date": {"type": "string", "description": "schedule: local date and time, ISO (2026-12-01T09:00)"},
         "item": {"type": "string", "description": "apply (also publish, schedule): the desk item id"},
+        "drop_blocks": {"type": "array", "items": {"type": "string"}, "description": (
+            "update, stage, apply: blocks the change may drop on purpose, by name (kadence/rowlayout) or namespace "
+            "(kadence/*); only after the person agreed")},
+        "elementor_edits": {"type": "array", "description": (
+            "update, stage on an Elementor page (Elementor pack on): ElementorEdit list, each {element_id, set} "
+            "where set maps an editable path from wp_content get (title, editor, text, link.url, image.id, "
+            "icon_list.<item _id>.text, ...) to its new value; existing elements only"),
+            "items": {"type": "object", "properties": {
+                "element_id": {"type": "string"},
+                "set": {"type": "object", "description": "path -> value, e.g. {\"title\": \"New heading\"}"}},
+                "required": ["element_id", "set"]}},
     }, "required": ["site", "action"]},
 }
 
@@ -161,6 +194,8 @@ def plan(rt: Runtime, args: dict) -> Plan:
     action = str(args.get("action") or "")
     if action not in ACTIONS:
         raise Refused("bad_args", f"action must be one of {', '.join(ACTIONS)}")
+    if args.get("elementor_edits") is not None and action not in ("update", "stage"):
+        raise Refused("bad_args", "elementor_edits go with update (a draft) or stage (a published page)")
     status = args.get("status")
     if status is not None and status not in ALLOWED_STATUS:
         raise Refused("no_publish", f"status {status!r} is refused: WPBrücke writes drafts (draft or pending) only. "
@@ -173,7 +208,10 @@ def plan(rt: Runtime, args: dict) -> Plan:
             raise Refused("not_found", str(e)) from None
         if args.get("site") and args["site"] != item["site"]:
             raise Refused("bad_args", f"desk item {item['id']} belongs to site {item['site']}, not {args['site']}")
-        args = {**args, "site": item["site"], "type": item["wp_type"], "id": args.get("id") or item["wp_id"]}
+        if args.get("id") not in (None, "") and str(args["id"]) != str(item["wp_id"]):
+            raise Refused("bad_args", f"desk item {item['id']} is {item['wp_type']} {item['wp_id']}, not {args['id']}; "
+                          "pass the item alone (or its own id)")
+        args = {**args, "site": item["site"], "type": item["wp_type"], "id": item["wp_id"]}
     try:
         site = rt.site(str(args.get("site") or ""))
     except NotFound as e:
@@ -192,6 +230,11 @@ def plan(rt: Runtime, args: dict) -> Plan:
     ptype = str(args.get("type") or "post")
     if ptype not in ("post", "page"):
         raise Refused("bad_args", "type must be post or page")
+    if args.get("elementor_edits") is not None:
+        try:
+            el_pack.refuse_drafter_page(facts, ptype)
+        except el_model.PackRefused as r:
+            raise Refused(r.code, r.message) from None
     lines = []
     if action == "create":
         if not args.get("title"):
@@ -211,6 +254,19 @@ def plan(rt: Runtime, args: dict) -> Plan:
                 lines.append(f"{k}: {str(args[k])[:200]}")
         if args.get("content"):
             lines.append(f"content: {len(str(args['content']))} characters: {str(args['content'])[:300]}")
+        if args.get("drop_blocks"):
+            lines.append(f"may drop blocks: {', '.join(str(b) for b in args['drop_blocks'])[:200]}")
+        if args.get("elementor_edits") is not None:
+            if args.get("content"):
+                raise Refused("bad_args", "pass elementor_edits or content, not both: an Elementor page changes "
+                              "through elementor_edits")
+            try:
+                edits = el_model.normalize_edits(args["elementor_edits"])
+            except el_model.PackRefused as r:
+                raise Refused(r.code, r.message) from None
+            for e in edits:
+                for path, value in e["set"].items():
+                    lines.append(f"Elementor {e['element_id']} {path}: {str(value)[:200]}")
     elif action in PUBLISHING:
         if args.get("id") is None:
             raise Refused("bad_args", f"{action} needs id or item")
@@ -265,20 +321,26 @@ def upload(client, path: str, alt: str, title: str = "") -> dict:
     return {"id": media["id"], "src": media.get("source_url"), "alt": alt[:300]}
 
 
-def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: str = "") -> dict:
+def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: str = "",
+            trace: Optional[dict] = None) -> dict:
+    """``trace`` (optional) receives what the write log needs: the post's title before and after."""
     site, args = p.site, p.args
+    trace = trace if trace is not None else {}
     client = rt.client(site)
     desk = Desk(rt.store)
     ptype = str(args.get("type") or "post")
+    trace.update(wp_type=ptype, wp_id=args.get("id"))
     route = f"/wp-json/wp/v2/{ptype}s"
     notes, out = [], {"ok": True, "site": site["id"], "action": p.action, "sent": True}
     meta, seo_problem = _seo_meta(p.facts, args.get("seo") or {})
     if seo_problem:
         notes.append(seo_problem)
     if p.action in PUBLISHING:
-        return {**out, **publishing(client, desk, p)}
+        return {**out, **publishing(client, desk, p, trace)}
     if p.action == "upload_media":
+        trace.update(wp_type="media", label=Path(str(args["path"])).name)
         media = upload(client, args["path"], str(args["alt"]))
+        trace["wp_id"] = media.get("id")
         return {**out, "media": media, "next": "pass featured_media to wp_draft create/update"}
 
     body: dict = {}
@@ -306,6 +368,7 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: st
     if p.action == "create":
         body["status"] = args.get("status") or "draft"
         post = client.post(route, body)
+        trace.update(wp_id=post["id"], label=_title(post) or body.get("slug"))
         item = desk.create(site=site["id"], site_url=site["url"], kind="new_page" if ptype == "page" else "new_post",
                            wp_type=ptype, wp_id=post["id"], title=_title(post), created_by=created_by,
                            link=post.get("link") or "", live_status=post.get("status"), note=str(args.get("note") or ""),
@@ -314,11 +377,21 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: st
     else:
         pid = int(args["id"])
         live = client.get(f"{route}/{pid}", context="edit")
+        trace.update(wp_id=pid, label=_title(live) or live.get("slug"), before_title=_title(live))
         from .content import do_not_touch
         if do_not_touch(site, live):
             raise Refused("do_not_touch", f"{ptype} {pid} is on the site file's do-not-touch list; nothing was sent",
                           "memory.do_not_touch")
         is_live = live.get("status") in ("publish", "future", "private")
+        try:
+            done = _elementor(p, client, desk, live, body, out, trace, created_by)
+        except el_model.PackRefused as r:
+            raise Refused(r.code, r.message) from None
+        if done is not None:
+            if notes:
+                done["notes"] = notes + list(done.get("notes") or [])
+            return done
+        builder = _body_guard(site, live, body.get("content"), args, f"{ptype} {pid}", p.facts)
         if p.action == "update" and is_live:
             raise Refused("live_post", f"{ptype} {pid} is {live.get('status')}; use action=stage for a draft copy, the "
                           "live post is never written")
@@ -336,6 +409,7 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: st
             if copy_meta:
                 copy["meta"] = copy_meta
             post = client.post(route, copy)
+            trace.update(copy_id=post.get("id"), after_title=_title(post))
             kind = "seo_fix" if p.action == "set_seo" else "staged_edit"
             item = desk.create(site=site["id"], site_url=site["url"], kind=kind, wp_type=ptype, wp_id=post["id"],
                                title=_title(post), created_by=created_by, source_id=pid, link=post.get("link") or "",
@@ -346,8 +420,13 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: st
             if "_wpbruecke_source" not in copy_meta:
                 notes.append("without the connector the copy has no _wpbruecke_source meta; the desk item remembers "
                              "the live post, and applying it is a copy in the editor")
+            if not builders.body_editable(builder):
+                notes.append(f"the live page is built with {builders.LABELS[builder['id']]}: the copy holds only its "
+                             "stored body, so its preview does not show the page as visitors see it; apply copies "
+                             "title, excerpt and SEO fields and keeps the live body")
         else:
             post = client.post(f"{route}/{pid}", body) if body else live
+            trace.update(after_title=_title(post), label=_title(post) or trace.get("label"))
             item = desk.find(site["id"], pid)
             if item is None:
                 item = desk.create(site=site["id"], site_url=site["url"],
@@ -364,6 +443,115 @@ def execute(rt: Runtime, p: Plan, created_by: str = "hermes", automation_run: st
         out["notes"] = notes
     out["next"] = f"run wp_proof with item={out.get('desk_item')} to render it at three widths"
     return out
+
+
+def _elementor(p: Plan, client, desk: Desk, live: dict, body: dict, out: dict, trace: dict,
+               created_by: str) -> Optional[dict]:
+    """update or stage of an Elementor page through the Elementor pack, or None for the core path (another
+    builder, the pack off without elementor_edits, set_seo, an untested Elementor release without edits)."""
+    args, site = p.args, p.site
+    ptype, pid = str(args.get("type") or "post"), int(args["id"])
+    what = f"{ptype} {pid}"
+    builder = builders.detect(live, p.facts, site)
+    raw_edits = args.get("elementor_edits")
+    if builder["id"] != "elementor":
+        if raw_edits is not None:
+            raise Refused("bad_args", f"elementor_edits are for Elementor pages; {what} is built with "
+                          f"{builders.LABELS.get(builder['id'], builder['id'])}. Nothing was sent.")
+        return None
+    if p.action not in ("update", "stage"):
+        return None
+    if not builder.get("pack"):
+        if raw_edits is not None:
+            raise Refused("builder_page", builders.refusal(builder, what))
+        return None
+    if body.get("content") is not None:
+        raise Refused("elementor_scope", f"{what} is an Elementor page: its body changes through elementor_edits "
+                      "(wp_content get lists the elements and their editable paths), never content. "
+                      f"{el_widgets.SCOPE} Nothing was sent.")
+    is_live = live.get("status") in ("publish", "future", "private")
+    if p.action == "update" and is_live:
+        raise Refused("live_post", f"{what} is {live.get('status')}; use action=stage for a draft copy, the live post "
+                      "is never written")
+    el_pack.refuse_drafter_page(p.facts, ptype)
+    doc = el_pack.read(client, pid)
+    if el_pack.untested(doc):
+        if raw_edits is not None:
+            el_pack.check(doc, [])
+        return None
+    edits = el_model.normalize_edits(raw_edits) if raw_edits is not None else []
+    if edits:
+        el_pack.check(doc, edits)
+    route = f"/wp-json/wp/v2/{ptype}s"
+    core = {k: v for k, v in body.items() if k != "slug"} if p.action == "stage" else dict(body)
+    result = None
+    if p.action == "stage":
+        staged = el_pack.stage(client, pid)
+        target = int(staged["copy"])
+        trace.update(copy_id=target)
+        try:
+            if core:
+                client.post(f"{route}/{target}", core)
+            result = el_pack.write(client, target, edits) if edits else None
+        except (el_model.PackRefused, WPError):
+            try:
+                client.delete(f"{route}/{target}", force="true")
+            except WPError:
+                pass
+            raise
+    else:
+        target = pid
+        if core:
+            client.post(f"{route}/{target}", core)
+        result = el_pack.write(client, target, edits, before=doc) if edits else None
+    final = result["doc"] if result else el_pack.read(client, target)
+    post = client.get(f"{route}/{target}", context="edit")
+    trace.update(after_title=_title(post), label=_title(post) or trace.get("label"))
+    if p.action == "stage":
+        item = desk.create(site=site["id"], site_url=site["url"], kind="staged_edit", wp_type=ptype, wp_id=target,
+                           title=_title(post), created_by=created_by, source_id=pid, link=post.get("link") or "",
+                           live_status=post.get("status"), note=str(args.get("note") or ""))
+        live_after = el_pack.read(client, pid)
+        out.update(wp_id=target, source_id=pid, desk_item=item["id"], links=item["links"],
+                   live_unchanged=live_after.hash == doc.hash and live_after.modified_gmt == doc.modified_gmt)
+    else:
+        item = desk.find(site["id"], pid)
+        if item is None:
+            item = desk.create(site=site["id"], site_url=site["url"], kind="new_page" if ptype == "page" else "new_post",
+                               wp_type=ptype, wp_id=pid, title=_title(post), created_by="person"
+                               if live.get("author") != (p.facts.get("user") or {}).get("id") else created_by,
+                               link=post.get("link") or "", live_status=post.get("status"))
+        elif item["state"] in ("changes_requested",):
+            item = desk.move(item["id"], "revise", "hermes", str(args.get("note") or "revised"))
+        elif args.get("note"):
+            item = desk.note(item["id"], "hermes", str(args["note"]))
+        out.update(wp_id=pid, status=post.get("status"), desk_item=item["id"], links=item["links"])
+    out["elementor"] = {"edited": [f"{e['element_id']} {path}" for e in edits for path in e["set"]],
+                        "hash": final.hash, "template": final.template, "read_back": bool(result) or None}
+    notes = []
+    if result and result["filtered"]:
+        notes.append("WordPress stored these values differently from what was sent (its filter for this user, or "
+                     f"a normalised URL): {', '.join(result['filtered'])}; wp_content get shows what it holds")
+    if p.action == "stage" and staged.get("template"):
+        notes.append(f"the copy keeps the page template {staged['template']}")
+    if notes:
+        out["notes"] = notes
+    out["next"] = f"run wp_proof with item={out.get('desk_item')} to render it at three widths"
+    return out
+
+
+def _body_guard(site: dict, live: dict, new_content: Optional[str], args: dict, what: str, facts: dict) -> dict:
+    """Refuse a body change the site cannot take, before any write; return the post's Builder."""
+    builder = builders.detect(live, facts, site)
+    if new_content is None:
+        return builder
+    if not builders.body_editable(builder):
+        raise Refused("builder_page", builders.refusal(builder, what))
+    dropped = builders.dropped_blocks(_raw(live, "content"), new_content, packs_mod.known_block_namespaces(site),
+                                      args.get("drop_blocks"))
+    if dropped:
+        raise Refused("unknown_blocks", builders.dropped_message(dropped, what))
+    return builder
 
 
 def _raw(post: dict, key: str) -> str:
@@ -389,16 +577,18 @@ def _desk_item(desk: Desk, p: Plan, pid: int) -> Optional[dict]:
     return desk.find(p.site["id"], pid)
 
 
-def publishing(client, desk: Desk, p: Plan) -> dict:
+def publishing(client, desk: Desk, p: Plan, trace: Optional[dict] = None) -> dict:
     """publish, schedule or apply (contract § 8), each read back from WordPress."""
     from .content import do_not_touch
+    trace = trace if trace is not None else {}
     ptype = str(p.args.get("type") or "post")
     route = f"/wp-json/wp/v2/{ptype}s"
     pid = int(p.args["id"])
     post = client.get(f"{route}/{pid}", context="edit")
+    trace.update(wp_id=pid, label=_title(post) or post.get("slug"), before_title=_title(post))
     item = _desk_item(desk, p, pid)
     if p.action == "apply":
-        return _apply(client, desk, p, route, post, item)
+        return _apply(client, desk, p, route, post, item, trace)
     if do_not_touch(p.site, post):
         raise Refused("do_not_touch", f"{ptype} {pid} is on the site file's do-not-touch list; nothing was sent",
                       "memory.do_not_touch")
@@ -420,26 +610,55 @@ def publishing(client, desk: Desk, p: Plan) -> dict:
     return out
 
 
-def _apply(client, desk: Desk, p: Plan, route: str, copy: dict, item: Optional[dict]) -> dict:
+def _apply(client, desk: Desk, p: Plan, route: str, copy: dict, item: Optional[dict],
+           trace: Optional[dict] = None) -> dict:
     from .content import do_not_touch
+    trace = trace if trace is not None else {}
     meta = copy.get("meta") if isinstance(copy.get("meta"), dict) else {}
     source = (item or {}).get("source_id") or meta.get("_wpbruecke_source")
     if not source:
         raise Refused("not_staged", f"{p.args.get('type') or 'post'} {copy.get('id')} is not a staged copy (no desk item "
                       "with a live post and no _wpbruecke_source); nothing was sent")
     source = int(source)
+    what = f"{p.args.get('type') or 'post'} {copy.get('id')}"
+    pointed = meta.get("_wpbruecke_source")
+    if item is not None and pointed not in (None, "", 0, "0") and str(pointed).strip() != str(source):
+        raise Refused("not_staged", f"{what} names post {pointed} as its live post, its desk item {item['id']} names "
+                      f"post {source}; the copy was changed after staging, so nothing was sent")
+    if item is not None and int(item.get("wp_id") or 0) != int(copy.get("id") or -1):
+        raise Refused("not_staged", f"{what} is not the copy of desk item {item['id']}; nothing was sent")
+    if copy.get("status") not in ("draft", "pending", "auto-draft") or int(copy.get("id") or 0) == source:
+        raise Refused("not_staged", f"{what} is {copy.get('status')}, not a staged draft copy; apply deletes the copy, "
+                      "so it never runs on a live post; nothing was sent")
+    if do_not_touch(p.site, copy):
+        raise Refused("do_not_touch", f"{what} is on the site file's do-not-touch list; nothing was sent",
+                      "memory.do_not_touch")
     live = client.get(f"{route}/{source}", context="edit")
+    trace.update(wp_id=source, copy_id=copy.get("id"), label=_title(live) or live.get("slug"),
+                 before_title=_title(live), after_title=_title(copy))
     if do_not_touch(p.site, live):
         raise Refused("do_not_touch", f"post {source} is on the site file's do-not-touch list; nothing was sent",
                       "memory.do_not_touch")
+    builder = builders.detect(live, p.facts, p.site)
+    if builder["id"] == "elementor" and builder.get("pack") and \
+            builders.detect(copy, p.facts, p.site)["id"] == "elementor":
+        try:
+            return _elementor_apply(client, desk, p, route, copy, live, item, trace)
+        except el_model.PackRefused as r:
+            raise Refused(r.code, r.message) from None
     body = {"title": _raw(copy, "title"), "content": _raw(copy, "content"), "excerpt": _raw(copy, "excerpt")}
+    if not builders.body_editable(builder) and body["content"] == _raw(live, "content"):
+        del body["content"]  # a builder page keeps its body; the copy only carries title, excerpt and SEO
+    else:
+        _body_guard(p.site, live, body["content"], p.args, f"{p.args.get('type') or 'post'} {source}", p.facts)
     seo = {k: v for k, v in meta.items() if k in SEO_META and v not in (None, "")}
     if seo:
         body["meta"] = seo
     client.post(f"{route}/{source}", body)
     after_post = client.get(f"{route}/{source}", context="edit")
     after = reading(after_post)
-    expected = content_hash(body["content"])
+    trace.update(label=after.get("title") or trace.get("label"), after_title=after.get("title"))
+    expected = content_hash(body["content"] if "content" in body else _raw(live, "content"))
     out = {"wp_id": source, "copy_id": copy.get("id"), "read_back": after, "status": after["status"],
            "applied_fields": sorted(k for k in body if k != "meta") + [f"meta.{k}" for k in sorted(seo)],
            "content_matches": after["content_hash"] == expected, "expected_content_hash": expected}
@@ -460,20 +679,162 @@ def _apply(client, desk: Desk, p: Plan, route: str, copy: dict, item: Optional[d
     return out
 
 
+def _elementor_apply(client, desk: Desk, p: Plan, route: str, copy: dict, live: dict, item: Optional[dict],
+                     trace: dict) -> dict:
+    """The agent's apply of a staged Elementor copy: the connector's apply route (the same PHP function as the
+    review screen's button), then the live page's tree read back against the copy's."""
+    copy_id, source = int(copy["id"]), int(live["id"])
+    copy_doc = el_pack.read(client, copy_id)
+    why = el_pack.untested(copy_doc)
+    if why:
+        raise Refused("elementor_untested", f"{why}. Nothing was sent.")
+    res = el_pack.apply(client, copy_id)
+    live_doc = el_pack.read(client, source)
+    after_post = client.get(f"{route}/{source}", context="edit")
+    after = reading(after_post)
+    trace.update(label=after.get("title") or trace.get("label"), after_title=after.get("title"))
+    try:
+        gone = client.get(f"{route}/{copy_id}", context="edit", _fields="id,status").get("status") == "trash"
+    except WPError as e:
+        gone = e.kind == "not_found" or e.status == 410
+    out = {"wp_id": source, "copy_id": copy_id, "read_back": after, "status": after["status"],
+           "applied_fields": ["elementor", "excerpt", "title"], "content_matches": live_doc.hash == copy_doc.hash,
+           "expected_content_hash": copy_doc.hash[:12], "elementor": {"hash": live_doc.hash,
+                                                                      "template": live_doc.template,
+                                                                      "live_keys_removed": res.get("live_keys_removed") or []},
+           "copy_deleted": gone}
+    if item is not None:
+        item = desk.mark_applied(item["id"])
+        out.update(desk_item=item["id"], desk_state=item["state"])
+    out["confirmed"] = bool(res.get("applied") and out["content_matches"] and gone)
+    return out
+
+
 def _title(post: dict) -> str:
     t = post.get("title") or {}
     return html.unescape(str((t.get("raw") if isinstance(t, dict) else t) or (t.get("rendered") if isinstance(t, dict) else "") or ""))
 
 
-def run(rt: Runtime, args: dict, approved: bool, created_by: str = "hermes", automation_run: str = "") -> dict:
-    """The handler body after the lanes check: ``approved`` says Hermes' gate passed this exact call."""
+def run(rt: Runtime, args: dict, approved: bool, created_by: str = "hermes", automation_run: str = "",
+        tool: str = "wp_draft", who: str = "") -> dict:
+    """The handler body after the lanes check: ``approved`` says Hermes' gate passed this exact call.
+    Every outcome, a refusal included, leaves one line in the write log."""
+    trace: dict = {}
+    result = "error"
     try:
         p = plan(rt, args)
         if p.needs_card and not approved:
-            return Refused("not_approved", "This write needs the person's approval in Hermes and did not get it "
-                           "(no card was answered for this exact call). Nothing was sent.").to_dict()
-        return execute(rt, p, created_by, automation_run)
+            out = Refused("not_approved", "This write needs the person's approval in Hermes and did not get it "
+                          "(no card was answered for this exact call). Nothing was sent.").to_dict()
+            result = "refused"
+        else:
+            out = execute(rt, p, created_by, automation_run, trace=trace)
+            result = "ok"
     except Refused as r:
-        return r.to_dict()
+        out, result = r.to_dict(), "refused"
     except WPError as e:
-        return {"ok": False, **e.to_dict()}
+        out = {"ok": False, **e.to_dict()}
+    except Exception as e:
+        log_write(rt, tool, args, {"ok": False, "error": "internal", "message": type(e).__name__}, trace, "error",
+                  created_by=created_by, automation_run=automation_run, who=who)
+        raise
+    log_write(rt, tool, args, out, trace, result, created_by=created_by, automation_run=automation_run, who=who)
+    return out
+
+
+def _who(created_by: str, automation_run: str, who: str) -> "tuple[str, str]":
+    if automation_run:
+        return "automation", f"automation:{automation_run}"
+    if created_by == "person":
+        return "desk", "person"
+    return "chat", who or "agent"
+
+
+def log_label(rt: Runtime, args: dict, trace: dict) -> Optional[str]:
+    """The post's title or slug as WordPress held it at the write; before any request, what the call or the
+    desk item names."""
+    if trace.get("label"):
+        return trace["label"]
+    if args.get("title"):
+        return str(args["title"])
+    try:
+        desk = Desk(rt.store)
+        item = desk.get(str(args["item"])) if args.get("item") else (
+            desk.find(str(args.get("site") or ""), args["id"]) if args.get("id") not in (None, "") else None)
+    except (DeskError, KeyError, ValueError, OSError):
+        item = None
+    if item and item.get("title"):
+        return item["title"]
+    return str(args.get("slug") or args.get("path") or "") or None
+
+
+def _changed(args: dict) -> list:
+    words = {"title": "title", "content": "content", "excerpt": "excerpt", "slug": "slug", "categories": "categories",
+             "tags": "tags", "featured_media": "featured image", "featured_image": "featured image", "seo": "SEO fields",
+             "elementor_edits": "Elementor edits"}
+    out = []
+    for key, word in words.items():
+        if args.get(key) and word not in out:
+            if key == "content":
+                word = f"content ({len(str(args['content']))} characters)"
+            elif key == "elementor_edits" and isinstance(args[key], list):
+                word = f"Elementor edits on {len(args[key])} element(s)"
+            out.append(word)
+    return out
+
+
+def log_summary(action: str, args: dict, out: dict, trace: dict, result: str) -> str:
+    ptype = str(trace.get("wp_type") or args.get("type") or "post")
+    pid = trace.get("wp_id") or out.get("wp_id") or args.get("id")
+    what = f"{ptype} {pid}" if pid not in (None, "") else f"a {ptype}"
+    before, after = trace.get("before_title"), trace.get("after_title")
+    title_move = f'; title "{before}" → "{after}"' if before and after and before != after else ""
+    fields = _changed(args)
+    with_fields = f" ({', '.join(fields)})" if fields else ""
+    if result != "ok":
+        reason = str(out.get("message") or out.get("error") or "").split(". ")[0]
+        return f"{action} {what} refused: {reason}" if result == "refused" else f"{action} {what} failed: {reason}"
+    if action == "create":
+        return f"created {ptype} draft {pid}{with_fields}, status {out.get('status') or 'draft'}"
+    if action == "upload_media":
+        return f"uploaded image {trace.get('label') or ''} as media {pid}".strip()
+    if action in ("stage", "set_seo") and trace.get("copy_id"):
+        verb = "staged SEO fields" if action == "set_seo" else "staged a change"
+        return f"{verb} of {what} as draft copy {trace['copy_id']}{with_fields}{title_move}; the live {ptype} is unchanged"
+    if action in ("update", "set_seo"):
+        return f"changed draft {what}{with_fields}{title_move}"
+    if action == "publish":
+        return f"published {what}; WordPress reads it back as {out.get('status')}"
+    if action == "schedule":
+        return f"scheduled {what} for {args.get('date')}; WordPress reads it back as {out.get('status')}"
+    if action == "apply":
+        applied = ", ".join(out.get("applied_fields") or [])
+        return (f"applied draft copy {trace.get('copy_id')} onto the live {what} ({applied}){title_move}; "
+                f"copy deleted: {'yes' if out.get('copy_deleted') else 'no'}")
+    return f"{action} {what}"
+
+
+def log_write(rt: Runtime, tool: str, args: dict, out: dict, trace: dict, result: str, created_by: str = "hermes",
+              automation_run: str = "", who: str = "") -> None:
+    try:
+        _log_write(rt, tool, args, out, trace, result, created_by, automation_run, who)
+    except Exception:  # the log never changes a write's answer
+        import logging
+        logging.getLogger(__name__).warning("wpbruecke: no write-log line for %s", tool, exc_info=True)
+
+
+def _log_write(rt: Runtime, tool: str, args: dict, out: dict, trace: dict, result: str, created_by: str,
+               automation_run: str, who: str) -> None:
+    from .. import activity
+    action = str(args.get("action") or "")
+    lane, by = _who(created_by, automation_run, who)
+    site = str(args.get("site") or out.get("site") or "")
+    if not site and args.get("item"):
+        item = Desk(rt.store).get(str(args["item"])) if isinstance(args.get("item"), str) else None
+        site = (item or {}).get("site") or ""
+    activity.for_runtime(rt, site=site, tool=tool, action=action,
+                         wp_type=trace.get("wp_type") or args.get("type") or ("media" if action == "upload_media" else "post"),
+                         wp_id=trace.get("wp_id") or out.get("wp_id") or args.get("id"),
+                         label=log_label(rt, args, trace), desk_item=out.get("desk_item") or args.get("item"),
+                         lane=lane, who=by, result=result, code=out.get("error"),
+                         summary=log_summary(action, args, out, trace, result), read_back=out.get("read_back"))

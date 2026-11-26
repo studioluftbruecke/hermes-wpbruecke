@@ -1,0 +1,104 @@
+{
+ "builder": "core",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "block page",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<!-- wp:heading --><h2 class=\"wp-block-heading\">Hi</h2><!-- /wp:heading -->",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "blocks",
+    "source": "markup"
+   }
+  },
+  {
+   "name": "classic post",
+   "post": {
+    "id": 0,
+    "type": "post",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<p>Plain HTML from the classic editor.</p>",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "classic",
+    "source": "markup"
+   }
+  },
+  {
+   "name": "connector says unknown_builder for SiteOrigin",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "",
+     "rendered": ""
+    },
+    "meta": {},
+    "wpbruecke_builder": {
+     "id": "unknown_builder",
+     "evidence": [
+      "meta panels_data=set"
+     ]
+    }
+   },
+   "expect": {
+    "id": "unknown_builder",
+    "source": "connector",
+    "evidence": "meta panels_data=set"
+   }
+  },
+  {
+   "name": "a classic post on a site without any builder hint",
+   "post": {
+    "id": 0,
+    "type": "post",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<p>x</p>",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "facts": {
+    "seo_public": {
+     "plugins_in_html": [
+      "akismet"
+     ]
+    }
+   },
+   "expect": {
+    "id": "classic",
+    "source": "markup"
+   }
+  }
+ ]
+}

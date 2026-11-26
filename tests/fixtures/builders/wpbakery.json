@@ -1,0 +1,76 @@
+{
+ "builder": "wpbakery",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "shortcodes in the stored body",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "[vc_row][vc_column width=\"1/2\"][vc_column_text]<p>Opening hours</p>[/vc_column_text][/vc_column][/vc_row]",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "wpbakery",
+    "source": "markup",
+    "evidence": "marker [vc_row"
+   }
+  },
+  {
+   "name": "rendered body, read without a key",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "rendered": "<div class=\"vc_row wpb_row vc_row-fluid\"><div class=\"wpb_column vc_column_container vc_col-sm-6\"><p>Opening hours</p></div></div>"
+    },
+    "meta": {}
+   },
+   "expect": {
+    "id": "wpbakery",
+    "source": "markup",
+    "evidence": "rendered vc_row wpb_row"
+   }
+  },
+  {
+   "name": "connector field",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<p>x</p>",
+     "rendered": ""
+    },
+    "meta": {},
+    "wpbruecke_builder": {
+     "id": "wpbakery",
+     "evidence": [
+      "marker [vc_row"
+     ]
+    }
+   },
+   "expect": {
+    "id": "wpbakery",
+    "source": "connector"
+   }
+  }
+ ]
+}

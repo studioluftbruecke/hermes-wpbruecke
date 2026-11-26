@@ -1,0 +1,91 @@
+{
+ "builder": "beaver",
+ "note": "Written for these tests, shaped like the public samples the builder's own docs, code and forums show; no third-party text.",
+ "cases": [
+  {
+   "name": "keyed read: the stripped copy Beaver writes into the body, on a site that runs it",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<h2>Our menu</h2><p>Fresh bread daily.</p>",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "facts": {
+    "seo_public": {
+     "plugins_in_html": [
+      "beaver-builder-lite-version"
+     ]
+    }
+   },
+   "expect": {
+    "id": "unknown_builder",
+    "source": "markup",
+    "evidence": "the site runs Beaver Builder"
+   }
+  },
+  {
+   "name": "connector field",
+   "post": {
+    "id": 0,
+    "type": "page",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<h2>Our menu</h2>",
+     "rendered": ""
+    },
+    "meta": {},
+    "wpbruecke_builder": {
+     "id": "beaver",
+     "evidence": [
+      "meta _fl_builder_enabled=1"
+     ]
+    }
+   },
+   "expect": {
+    "id": "beaver",
+    "source": "connector",
+    "evidence": "meta _fl_builder_enabled=1"
+   }
+  },
+  {
+   "name": "a block post on the same site stays editable",
+   "post": {
+    "id": 0,
+    "type": "post",
+    "status": "publish",
+    "title": {
+     "raw": "Sample",
+     "rendered": "Sample"
+    },
+    "content": {
+     "raw": "<!-- wp:paragraph --><p>News</p><!-- /wp:paragraph -->",
+     "rendered": ""
+    },
+    "meta": {}
+   },
+   "facts": {
+    "seo_public": {
+     "plugins_in_html": [
+      "bb-plugin"
+     ]
+    }
+   },
+   "expect": {
+    "id": "blocks",
+    "source": "markup"
+   }
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 name: wpbruecke
-version: "0.2.1"
-description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Each WordPress site needs a dedicated user for Hermes. Its role decides what Hermes can do: read, write drafts, or publish. WPBrücke refuses a user with wider rights than the level you confirmed. Hermes proves every change in a real browser at three widths and checks SEO; a review desk in Hermes Desktop shows every draft and staged change with its proof. Works on plain WordPress with an application password; an optional connector plugin adds a read-only role, a drafter role, signed draft previews and SEO fields; GeneratePress is an optional pack."
+version: "0.5.0"
+description: "WPBrücke · for WordPress: run one WordPress site or many from Hermes. Each WordPress site needs a dedicated user for Hermes. Its role decides what Hermes can do: read, write drafts, or publish. WPBrücke refuses a user with wider rights than the level you confirmed. Hermes proves every change in a real browser at three widths and checks SEO; a review desk in Hermes Desktop shows every draft and staged change with its proof. Works on plain WordPress with an application password; an optional connector plugin adds a read-only role, a drafter role, signed draft previews and SEO fields; optional packs cover GeneratePress, Elementor, WooCommerce products and FluentCRM newsletters."
 author: "Studio Luftbrücke"
 license: MIT
 requires_hermes: ">=0.23.0"
@@ -13,6 +13,7 @@ provides_tools:
   - wp_proof
   - wp_seo
   - wp_build
+  - wp_pack
 provides_hooks:
   - pre_tool_call
   - post_approval_response

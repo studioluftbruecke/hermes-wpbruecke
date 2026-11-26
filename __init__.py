@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import secrets
 from typing import Any, Callable, Optional
 
 PLUGIN = "wpbruecke"
@@ -57,12 +58,25 @@ def _json(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
-def _guarded(name: str, body: Callable[[], Any]) -> str:
+def _scrubbed(result: Any, get_secret: Optional[SecretGetter]) -> Any:
+    """Every tool result passes redact.scrub here, the one place results leave the plugin (AE1). Preview
+    links stay: the person asked for them. If the scrubber itself fails, nothing unchecked goes out."""
     try:
-        return _json(body())
+        redact = _mod("redact")
+        return redact.scrub(result, redact.known_secrets(get_secret))
+    except Exception:
+        logger.warning("wpbruecke: the result scrubber failed", exc_info=True)
+        return {"ok": False, "error": "internal", "message": "The result could not be checked for secrets, so it "
+                                                             "is not shown. Nothing else changed."}
+
+
+def _guarded(name: str, body: Callable[[], Any], get_secret: Optional[SecretGetter] = None) -> str:
+    try:
+        out = body()
     except Exception as e:  # never a traceback for the model
         logger.warning("wpbruecke %s failed", name, exc_info=True)
-        return _json({"ok": False, "error": "internal", "message": f"{type(e).__name__}: {e}"})
+        out = {"ok": False, "error": "internal", "message": f"{type(e).__name__}: {e}"}
+    return _json(_scrubbed(out, get_secret))
 
 
 def _no_data() -> dict:
@@ -79,8 +93,10 @@ def make_doctor_handler(get_setting: SettingGetter, data_dir: Any, get_secret: S
             if not data_dir:
                 return _no_data()
             rt = make_runtime(get_setting, data_dir, get_secret, **kw)
+            if args.get("action") == "log":
+                return _mod("tools.doctor").log(rt, args)
             return _mod("tools.doctor").run(rt, args.get("site") or None, bool(args.get("refresh", True)))
-        return _guarded("wp_doctor", body)
+        return _guarded("wp_doctor", body, get_secret)
     return handler
 
 
@@ -94,7 +110,7 @@ def make_sites_handler(get_setting: SettingGetter, data_dir: Any, get_secret: Se
                 return _no_data()
             rt = make_runtime(get_setting, data_dir, get_secret, **kw)
             return _mod("tools.sites").handle(rt, args, author=author)
-        return _guarded("wp_sites", body)
+        return _guarded("wp_sites", body, get_secret)
     return handler
 
 
@@ -115,7 +131,10 @@ def register(ctx) -> None:
                  "facts", "features", "runtime",
                  "tools.doctor", "tools.sites", "cli", "profile", "reference", "tools.content", "lanes", "desk", "hooks",
                  "tools.draft", "tools.desk", "tick", "api", "tools.proof", "tools.seo", "tools.build",
-                 "proof.checks", "proof.diff", "proof.runner", "seo.post", "seo.site", "seo.fields", "gp.blocks", "gp.build"):
+                 "proof.checks", "proof.diff", "proof.runner", "seo.post", "seo.site", "seo.fields", "packs", "builders",
+                 "packs.generatepress.blocks", "packs.generatepress.build", "redact", "activity", "abilities",
+                 "tools.pack", "packs.woocommerce.design", "packs.woocommerce.pack",
+                 "packs.fluentcrm.pack"):
         _mod(name)  # a broken install fails at load, not at the first call
 
     def get_setting(key: str, default: Any = None) -> Any:
@@ -149,7 +168,7 @@ def make_content_handler(get_setting: SettingGetter, data_dir: Any, get_secret: 
             if not data_dir:
                 return _no_data()
             return _mod("tools.content").handle(make_runtime(get_setting, data_dir, get_secret, **kw), args)
-        return _guarded("wp_content", body)
+        return _guarded("wp_content", body, get_secret)
     return handler
 
 
@@ -240,10 +259,46 @@ def _desk_item_for(rt, args: dict):
     return None
 
 
-def decide_draft(rt, args: dict, run) -> dict:
+def _run_lane(run) -> str:
+    """What the write log names as the actor's run: "" for an attended chat, else the automation run key
+    or "unattended"."""
+    try:
+        if not run.unattended_reason():
+            return ""
+        return run.run_key() or "unattended"
+    except Exception:
+        return "unattended"
+
+
+def _log_block(rt, tool: str, args: dict, run, d: dict) -> dict:
+    """A refused attempt leaves one write-log line where the refusal is decided: in the gate (Hermes then
+    never calls the handler) or in the handler's own check, never both for one call."""
+    if d.get("verdict") != "block":
+        return d
+    _mod("activity").quiet(_log_refusal)(rt, tool, args, run, d)
+    return d
+
+
+def _log_refusal(rt, tool: str, args: dict, run, d: dict) -> None:
+    out = {"ok": False, "error": d.get("code") or "refused", "message": d.get("message") or "", "sent": False}
+    if tool == "wp_sites":
+        _log_sites(rt, args, out)
+    elif tool == "wp_build" and args.get("action") == "set_brand":
+        _mod("tools.build").log_brand(rt, args, out, "refused")
+    elif tool == "wp_pack":
+        _mod("tools.pack").log_run(rt, args, out, "refused")
+    else:
+        _mod("tools.draft").log_write(rt, tool, args, out, {}, "refused", automation_run=_run_lane(run))
+
+
+def decide_draft(rt, args: dict, run, tool: str = "wp_draft") -> dict:
     """The gate's verdict for one wp_draft call (the handler asks the same). An unattended run is refused
     from the site file alone, before any request; then plan() checks the access level (enforce.py)
-    before any write. Within the level there is no card (plan D6)."""
+    before any write. Within the level there is no card (plan D6). A refusal is logged."""
+    return _log_block(rt, tool, args, run, _decide_draft(rt, args, run))
+
+
+def _decide_draft(rt, args: dict, run) -> dict:
     draft, lanes = _mod("tools.draft"), _mod("lanes")
     reason = run.unattended_reason()
     automation = None
@@ -270,13 +325,17 @@ def decide_draft(rt, args: dict, run) -> dict:
 
 
 def decide_sites(rt, args: dict, run) -> dict:
+    return _log_block(rt, "wp_sites", args, run, _decide_sites(rt, args, run))
+
+
+def _decide_sites(rt, args: dict, run) -> dict:
     refused = _mod("tools.sites").refusal(rt, args)
     if refused:
-        return {"verdict": "block", "code": "refused", "message": refused["message"]}
+        return {"verdict": "block", "code": refused.get("error") or "refused", "message": refused["message"]}
     touched = _mod("tools.sites").touches_guarded(args)
     reason = run.unattended_reason()
     if reason:
-        return {"verdict": "block", "code": "unattended",
+        return {"verdict": "block", "code": "packs_guarded" if "packs" in touched else "unattended",
                 "message": f"Changing {', '.join(touched)} in a site file needs a person, and {reason}."}
     site = args.get("site") or (args.get("fields") or {}).get("id") or "?"
     preview = ""
@@ -312,11 +371,12 @@ def make_draft_handler(get_setting: SettingGetter, data_dir: Any, run_context, g
                 return {"ok": False, "error": d.get("code", "refused"), "message": d["message"], "sent": False}
             approved = tickets.take(key) or d["verdict"] == "allow"
             out = _mod("tools.draft").run(rt, args, approved=approved,
-                                          automation_run=run.run_key() if d.get("automation") else "")
+                                          automation_run=run.run_key() if d.get("automation") else "",
+                                          tool="wp_draft", who=_agent(kwargs))
             if d.get("automation") and out.get("ok"):
                 out["lane"] = f"unattended, allowed by {d['automation']}"
             return out
-        return _guarded("wp_draft", body)
+        return _guarded("wp_draft", body, get_secret)
     return handler
 
 
@@ -332,9 +392,10 @@ def make_gated_sites_handler(get_setting: SettingGetter, data_dir: Any, run_cont
             if not data_dir:
                 return _no_data()
             rt = make_runtime(get_setting, data_dir, get_secret, **kw)
+            who = _agent(kwargs)
             refused = _mod("tools.sites").refusal(rt, args)
             if refused:
-                return refused
+                return _log_sites(rt, args, refused, who)
             if _mod("tools.sites").touches_guarded(args):
                 key = tickets.key("wp_sites", kwargs.get("session_id"), args)
                 d = decide_sites(rt, args, run_context())
@@ -342,23 +403,30 @@ def make_gated_sites_handler(get_setting: SettingGetter, data_dir: Any, run_cont
                     tickets.revoke(key)
                     return {"ok": False, "error": d["code"], "message": d["message"], "sent": False}
                 if not tickets.take(key):
-                    return {"ok": False, "error": "not_approved", "message": (
+                    return _log_sites(rt, args, {"ok": False, "error": "not_approved", "message": (
                         "Changing these site-file fields needs the person's approval in Hermes and no card was "
-                        "answered for this exact call. Nothing was saved.")}
-            return _mod("tools.sites").handle(rt, args, author="hermes")
-        return _guarded("wp_sites", body)
+                        "answered for this exact call. Nothing was saved.")}, who)
+            return _log_sites(rt, args, _mod("tools.sites").handle(rt, args, author="hermes"), who)
+        return _guarded("wp_sites", body, get_secret)
     return handler
 
 
+def _log_sites(rt, args: dict, out: dict, who: str = "agent") -> dict:
+    """One write-log line for a wp_sites call that writes a site file (add, update, restore, remove)."""
+    _mod("tools.sites").log_change(rt, args, out, who)
+    return out
+
+
 def make_desk_handler(get_setting: SettingGetter, data_dir: Any, get_secret: SecretGetter = _default_secret, **kw):
-    def handler(args: dict, **_: Any) -> str:
+    def handler(args: dict, **kwargs: Any) -> str:
         args = args if isinstance(args, dict) else {}
 
         def body():
             if not data_dir:
                 return _no_data()
-            return _mod("tools.desk").handle(make_runtime(get_setting, data_dir, get_secret, **kw), args)
-        return _guarded("wp_desk", body)
+            return _mod("tools.desk").handle(make_runtime(get_setting, data_dir, get_secret, **kw), args,
+                                             who=_agent(kwargs))
+        return _guarded("wp_desk", body, get_secret)
     return handler
 
 
@@ -375,7 +443,7 @@ def _gate_specs(get_setting: SettingGetter, data_dir: Any) -> dict:
     return _SPECS
 
 
-_SPECS: dict = {}  # later milestones add wp_seo and wp_build specs here
+_SPECS: dict = {}  # tool name -> hooks.Spec; wp_seo, wp_build and wp_pack add theirs at registration
 
 
 def _register_writes(ctx, get_setting: SettingGetter, data_dir: Any) -> None:
@@ -393,6 +461,7 @@ def _register_writes(ctx, get_setting: SettingGetter, data_dir: Any) -> None:
                       handler=make_desk_handler(get_setting, data_dir), description=desk.SCHEMA["description"],
                       emoji=EMOJI)
     _register_proof_seo_build(ctx, get_setting, data_dir, run_context)
+    _register_pack(ctx, get_setting, data_dir, run_context)
 
 
 # --- M5, M6, M9: proof, SEO, the GeneratePress pack ---------------------------------------------------
@@ -407,8 +476,14 @@ def make_proof_handler(get_setting: SettingGetter, data_dir: Any, get_secret: Se
         except Exception as e:  # never a traceback for the model
             logger.warning("wpbruecke wp_proof failed", exc_info=True)
             out = {"ok": False, "error": "internal", "message": f"{type(e).__name__}: {e}"}
+        out = _scrubbed(out, get_secret)
         return out if isinstance(out, dict) and out.get("_multimodal") else _json(out)
     return handler
+
+
+def _agent(kwargs: dict) -> str:
+    session = str((kwargs or {}).get("session_id") or "")
+    return f"agent:{session}" if session else "agent"
 
 
 def _draft_runner(rt, args_key_tool: str, args: dict, session_id: Any, run, tickets) -> Callable[[dict], dict]:
@@ -416,13 +491,14 @@ def _draft_runner(rt, args_key_tool: str, args: dict, session_id: Any, run, tick
     key = tickets.key(args_key_tool, session_id, args)
 
     def run_draft(draft_args: dict) -> dict:
-        d = decide_draft(rt, draft_args, run)
+        d = decide_draft(rt, draft_args, run, tool=args_key_tool)
         if d["verdict"] == "block":
             tickets.revoke(key)
             return {"ok": False, "error": d.get("code", "refused"), "message": d["message"], "sent": False}
         approved = tickets.take(key) or d["verdict"] == "allow"
         return _mod("tools.draft").run(rt, draft_args, approved=approved,
-                                       automation_run=run.run_key() if d.get("automation") else "")
+                                       automation_run=run.run_key() if d.get("automation") else "",
+                                       tool=args_key_tool, who=_agent({"session_id": session_id}))
     return run_draft
 
 
@@ -439,7 +515,7 @@ def make_seo_handler(get_setting: SettingGetter, data_dir: Any, run_context, get
             rt = make_runtime(get_setting, data_dir, get_secret, **kw)
             runner = _draft_runner(rt, "wp_seo", args, kwargs.get("session_id"), run_context(), tickets)
             return _mod("tools.seo").handle(rt, args, run_draft=runner)
-        return _guarded("wp_seo", body)
+        return _guarded("wp_seo", body, get_secret)
     return handler
 
 
@@ -464,8 +540,9 @@ def make_build_handler(get_setting: SettingGetter, data_dir: Any, run_context, g
                     return {"ok": False, "error": d.get("code", "refused"), "message": d["message"], "sent": False}
                 approved_brand = tickets.take(key) or d["verdict"] == "allow"
             runner = _draft_runner(rt, "wp_build", args, kwargs.get("session_id"), run, tickets)
-            return _mod("tools.build").handle(rt, args, run_draft=runner, approved_brand=approved_brand)
-        return _guarded("wp_build", body)
+            return _mod("tools.build").handle(rt, args, run_draft=runner, approved_brand=approved_brand,
+                                              who=_agent(kwargs))
+        return _guarded("wp_build", body, get_secret)
     return handler
 
 
@@ -473,17 +550,22 @@ def decide_seo(rt, args: dict, run) -> dict:
     try:
         draft_args = _mod("tools.seo").fix_args(rt, args)
     except ValueError as e:
-        return {"verdict": "block", "code": "bad_args", "message": str(e)}
-    return decide_draft(rt, draft_args, run)
+        return _log_block(rt, "wp_seo", args, run, {"verdict": "block", "code": "bad_args", "message": str(e)})
+    return decide_draft(rt, draft_args, run, tool="wp_seo")
 
 
 def decide_build(rt, args: dict, run) -> dict:
-    build = _mod("tools.build")
     if args.get("action") == "build_page":
         try:
-            return decide_draft(rt, build.draft_args(rt, args), run)
+            draft_args = _mod("tools.build").draft_args(rt, args)
         except ValueError as e:
-            return {"verdict": "block", "code": "bad_args", "message": str(e)}
+            return _log_block(rt, "wp_build", args, run, {"verdict": "block", "code": "bad_args", "message": str(e)})
+        return decide_draft(rt, draft_args, run, tool="wp_build")
+    return _log_block(rt, "wp_build", args, run, _decide_brand(rt, args, run))
+
+
+def _decide_brand(rt, args: dict, run) -> dict:
+    build = _mod("tools.build")
     try:
         site = build._load(rt, str(args.get("run") or ""))["site"]
     except ValueError as e:
@@ -520,3 +602,86 @@ def _register_proof_seo_build(ctx, get_setting: SettingGetter, data_dir: Any, ru
     ctx.register_tool(name="wp_build", toolset=TOOLSET, schema=build.SCHEMA,
                       handler=make_build_handler(get_setting, data_dir, run_context),
                       description=build.SCHEMA["description"], emoji=EMOJI)
+
+
+# --- v0.5 PK2: plugin packs through wp_pack ----------------------------------------------------------
+
+def decide_pack(rt, args: dict, run) -> dict:
+    """The gate's verdict for one wp_pack run (the handler asks the same). list and describe never reach
+    it. In order: the call must name a site, a plugin pack switched on there and one of its ops; a
+    ``person_only`` op is refused at every level; an unattended run is refused; the site's WordPress role
+    must allow the op's level; the op's ``needs`` permission must be reported by the site; then a ``card``
+    op asks the person every time, and every other op runs without a card (reads, and writes inside the
+    level, v0.2 D6). Nothing here sends a write; a refusal of a write op is logged."""
+    return _log_block(rt, "wp_pack", args, run, _decide_pack(rt, args, run))
+
+
+def _decide_pack(rt, args: dict, run) -> dict:
+    pack = _mod("tools.pack")
+    try:
+        site, spec, op_name, op, data = pack.resolve(rt, args)
+    except pack.Refused as r:
+        return {"verdict": "block", "code": r.code, "message": r.message}
+    if op.gate == "person_only":
+        return {"verdict": "block", "code": "person_only",
+                "message": (f"{spec.label} op {op_name} is the person's to do in wp-admin; WPBrücke never runs it, at "
+                            f"any level. {spec.scope}")}
+    reason = run.unattended_reason()
+    if reason:
+        return {"verdict": "block", "code": "unattended",
+                "message": (f"Pack ops need a person, and {reason}. Nothing was sent. wp_pack list and describe "
+                            "still work.")}
+    refusal = rt.require(site, pack.LEVEL_ACTION[op.level])
+    if refusal is not None:
+        return {"verdict": "block", "code": refusal.code, "message": refusal.message}
+    needs = pack.permission_refusal(rt, site, spec, op_name, op)
+    if needs is not None:
+        return {"verdict": "block", "code": needs.code, "message": needs.message}
+    if pack.gate(rt, site, op, data) == "card":  # a fresh rule_key per call: "allow for this session" must not cover the next run
+        return {"verdict": "card", "rule_key": f"wpbruecke:wp_pack:{site['id']}:{spec.id}:{op_name}:{secrets.token_hex(4)}",
+                "message": pack.card_text(rt, site, spec, op_name, op, data)}
+    return {"verdict": "allow"}
+
+
+def make_pack_handler(get_setting: SettingGetter, data_dir: Any, run_context, get_secret: SecretGetter = _default_secret,
+                      tickets: Any = None, **kw):
+    tickets = tickets if tickets is not None else _mod("hooks").TICKETS
+
+    def handler(args: dict, **kwargs: Any) -> str:
+        args = args if isinstance(args, dict) else {}
+
+        def body():
+            if not data_dir:
+                return _no_data()
+            rt = make_runtime(get_setting, data_dir, get_secret, **kw)
+            pack = _mod("tools.pack")
+            if str(args.get("action") or "") in pack.READ_ACTIONS:
+                return pack.handle(rt, args)
+            key = tickets.key("wp_pack", kwargs.get("session_id"), args)
+            d = decide_pack(rt, args, run_context())
+            if d["verdict"] == "block":
+                tickets.revoke(key)
+                return {"ok": False, "error": d.get("code", "refused"), "message": d["message"], "sent": False}
+            if d["verdict"] == "card" and not tickets.take(key):
+                out = {"ok": False, "error": "not_approved", "sent": False, "message": (
+                    "This op asks the person every time, and no card was answered for this exact call. Nothing was sent.")}
+                pack.log_run(rt, args, out, "refused", _agent(kwargs))
+                return out
+            return pack.run(rt, args, who=_agent(kwargs))
+        return _guarded("wp_pack", body, get_secret)
+    return handler
+
+
+def pack_spec(rt_factory: Callable[[], Any]):
+    """The gate's view of wp_pack: list and describe pass untouched, every other call is decided."""
+    read_actions = _mod("tools.pack").READ_ACTIONS
+    return _mod("hooks").Spec(lambda a: str(a.get("action") or "") not in read_actions,
+                              lambda a, run: decide_pack(rt_factory(), a, run))
+
+
+def _register_pack(ctx, get_setting: SettingGetter, data_dir: Any, run_context) -> None:
+    pack = _mod("tools.pack")
+    _SPECS["wp_pack"] = pack_spec(lambda: make_runtime(get_setting, data_dir))
+    ctx.register_tool(name="wp_pack", toolset=TOOLSET, schema=pack.SCHEMA,
+                      handler=make_pack_handler(get_setting, data_dir, run_context),
+                      description=pack.SCHEMA["description"], emoji=EMOJI)

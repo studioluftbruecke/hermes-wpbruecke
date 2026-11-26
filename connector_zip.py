@@ -13,7 +13,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-CONNECTOR_VERSION = "0.2.1"
+CONNECTOR_VERSION = "0.5.0"
 SLUG = "wpbruecke-connector"
 CONNECTOR_DIR = Path(__file__).resolve().parent / "connector"
 SOURCE = CONNECTOR_DIR / SLUG

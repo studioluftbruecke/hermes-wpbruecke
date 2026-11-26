@@ -5,7 +5,9 @@ message, setting}``; refused clicks 403 or 409. The Desktop half reads the same 
 The routes are the person's click lane: they mark items reviewed and ask for changes, publish,
 schedule and apply at the Publish level (the same level check as the tools), connect a settings
 group (``/groups``, ``/sites/check``, Confirm), revoke a site's password and remove a site. No route writes Hermes'
-settings: the page empties a group through Desktop's own settings call (contract § 11).
+settings: the page empties a group through Desktop's own settings call (contract § 11). Every click that
+writes leaves one line in the site's write log (activity.py, ``_logged``); ``GET /sites/{id}/activity``
+reads the last 50.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from . import access as access_mod
 from . import connect as connect_mod
 from . import features as features_mod
 from . import groups as groups_mod
+from . import health as health_mod
 from . import migration as migration_mod
 from .client import WPError
 from .desk import OPEN, Desk, DeskError
@@ -38,6 +41,21 @@ def _err(status: int, code: str, message: str, setting: str = "") -> "tuple[int,
     return status, body
 
 
+def _logged(rt: Runtime, site: str, action: str, reply: "tuple[int, dict]", summary: str = "",
+            wp_type: str = "site_file", label: Any = None, **extra: Any) -> "tuple[int, dict]":
+    """One write-log line for the person's click (a 404 for a site or item that is not there writes none)."""
+    from . import activity
+    status, body = reply
+    if status == 404:
+        return reply
+    ok = status < 400 and body.get("ok") is not False
+    result = "ok" if ok else ("error" if status >= 500 else "refused")
+    activity.for_runtime(rt, site=site, tool="page", action=action, wp_type=wp_type, label=label or site,
+                         lane="desk", who="person", result=result, code=None if ok else body.get("error"),
+                         summary=summary if ok and summary else (body.get("message") or summary), **extra)
+    return reply
+
+
 def _mark(site: dict, label: str) -> str:
     words = [w for w in (label or site["id"]).replace("-", " ").replace(".", " ").split() if w]
     return ((words[0][0] + (words[1][0] if len(words) > 1 else words[0][1:2])) if words else "WP").upper()
@@ -51,6 +69,7 @@ def _site_row(rt: Runtime, site: dict, desk: Desk) -> dict:
     row["wp_admin_url"] = site["url"].rstrip("/") + "/wp-admin/"
     from .sites import cockpit_url
     row["cockpit_url"] = cockpit_url(site)
+    row["health"] = health_mod.for_site(rt, site["id"])
     return row
 
 
@@ -120,7 +139,7 @@ def site_detail(rt: Runtime, site_id: str) -> "tuple[int, dict]":
                  "versions": rt.sites.versions(site_id), "yaml": yamlish.dump(site, HEADER), "settings_url": SETTINGS_URL}
 
 
-def site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
+def _site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
     from .tools.sites import refusal
     fields = (body or {}).get("fields") or {}
     refused = refusal(rt, {"action": "add", "fields": fields})
@@ -133,7 +152,7 @@ def site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
     return 200, {"ok": True, "site": res["site"], "diff": res["diff"], "version": res["version"], "changed": True}
 
 
-def site_patch(rt: Runtime, site_id: str, body: dict) -> "tuple[int, dict]":
+def _site_patch(rt: Runtime, site_id: str, body: dict) -> "tuple[int, dict]":
     changes = (body or {}).get("changes") or {}
     if not isinstance(changes, dict) or not changes:
         return _err(400, "bad_args", "changes: {field: value} needed")
@@ -271,14 +290,14 @@ def desk_item(rt: Runtime, item_id: str) -> "tuple[int, dict]":
                  "seo": _seo(rt, item.get("seo_id")), "shots": shots, "publishing": publishing}
 
 
-def desk_review(rt: Runtime, item_id: str) -> "tuple[int, dict]":
+def _desk_review(rt: Runtime, item_id: str) -> "tuple[int, dict]":
     try:
         return 200, {"ok": True, "item": Desk(rt.store).move(item_id, "review", "person")}
     except DeskError as e:
         return _err(409, "refused", str(e))
 
 
-def desk_changes(rt: Runtime, item_id: str, body: dict) -> "tuple[int, dict]":
+def _desk_changes(rt: Runtime, item_id: str, body: dict) -> "tuple[int, dict]":
     note = str((body or {}).get("note") or "").strip()
     try:
         item = Desk(rt.store).move(item_id, "changes", "person", note)
@@ -326,22 +345,28 @@ def desk_act(rt: Runtime, item_id: str, action: str, body: Optional[dict] = None
         args["date"] = str((body or {}).get("date") or "")
     if action == "apply" and item.get("kind") not in ("staged_edit", "seo_fix"):
         return _err(400, "bad_args", "only a staged copy can be applied")
+    trace: dict = {}
+
+    def logged(out: dict, result: str) -> dict:
+        draft_mod.log_write(rt, "page", args, out, trace, result, created_by="person")
+        return out
     try:
         p = draft_mod.plan(rt, args)
-        result = draft_mod.execute(rt, p, created_by="person")
+        result = draft_mod.execute(rt, p, created_by="person", trace=trace)
     except draft_mod.Refused as r:
-        out = r.to_dict()
+        out = logged(r.to_dict(), "refused")
         if r.code.startswith("level_") or r.code == "no_key":
             link = review_link(rt, item_id, action)[1]
             out["review_link"] = link.get("url") if link.get("ok") else item["links"]["edit"]
             return 403, out
         return PUBLISH_STATUS.get(r.code, 409), out
     except WPError as e:
-        return 502, {"ok": False, **e.to_dict(), "sent": True}
+        return 502, logged({"ok": False, **e.to_dict(), "sent": True}, "error")
+    logged(result, "ok")
     return 200, {**result, "item": Desk(rt.store).get(item_id)}
 
 
-def site_revoke(rt: Runtime, site_id: str) -> "tuple[int, dict]":
+def _site_revoke(rt: Runtime, site_id: str) -> "tuple[int, dict]":
     """Delete this site's own application password in WordPress, with that password (contract § 10).
     Only when its group is paired; read back with users/me, where 401 is the proof."""
     from . import enforce
@@ -474,7 +499,7 @@ def build_get(rt: Runtime, run_id: str) -> "tuple[int, dict]":
 
 
 def build_gate(rt: Runtime, run_id: str, body: dict) -> "tuple[int, dict]":
-    from .gp import build as gp_build
+    from .packs.generatepress import build as gp_build
     path = rt.store.path("build", f"{run_id}.json")
     with rt.store.lock("build"):
         run = rt.store.read_json(path, None)
@@ -501,6 +526,26 @@ CONFIRMABLE = ("needs_confirm", "confirmed", "lowered", "stopped")
 
 def settings_href(profile: str = "") -> str:
     return SETTINGS_URL + (f"&profile={profile}" if profile else "")
+
+
+def connector_package(data_dir: Any, workspace: str = "host") -> "tuple[int, dict]":
+    """POST /connector-package: the connector zip, written into ``<data_dir>/connector/`` with the same
+    builder as ``hermes wpbruecke connector-zip``, for Desktop's file download. ``workspace`` is
+    ``"ssh"`` when the profile's workspace is an SSH machine: Desktop then reads paths there, where the
+    zip is not, and the page shows the CLI command instead."""
+    from pathlib import Path
+
+    from . import connector_zip
+    if not data_dir:
+        return _err(500, "no_data_dir", "WPBrücke has no plugin data folder in this context.")
+    try:
+        info = connector_zip.build_zip(Path(data_dir) / "connector" / connector_zip.ZIP_NAME)
+    except (OSError, ValueError) as e:
+        return _err(500, "zip_failed", f"The connector zip could not be written: {e}")
+    version = connector_zip.CONNECTOR_VERSION
+    return 200, {"ok": True, "path": info["path"], "filename": f"{connector_zip.SLUG}-{version}.zip",
+                 "version": version, "sha256": info["sha256"], "bytes": info["bytes"],
+                 "workspace": "ssh" if workspace == "ssh" else "host"}
 
 
 def _legacy(rt: Runtime):
@@ -543,7 +588,7 @@ def sites_check(rt: Runtime, body: dict, profile: str = "") -> "tuple[int, dict]
     return 200, connect_mod.run_check(rt, n, settings_href(profile), legacy=_legacy(rt))
 
 
-def site_confirm(rt: Runtime, site_id: str, body: dict, profile: str = "") -> "tuple[int, dict]":
+def _site_confirm(rt: Runtime, site_id: str, body: dict, profile: str = "") -> "tuple[int, dict]":
     """The person's Confirm: re-read the role live and record the level only when it is still what the
     page showed."""
     try:
@@ -575,7 +620,7 @@ def site_confirm(rt: Runtime, site_id: str, body: dict, profile: str = "") -> "t
     return 200, final
 
 
-def site_delete(rt: Runtime, site_id: str) -> "tuple[int, dict]":
+def _site_delete(rt: Runtime, site_id: str) -> "tuple[int, dict]":
     try:
         site = rt.site(site_id)
     except NotFound as e:
@@ -589,7 +634,7 @@ def site_delete(rt: Runtime, site_id: str) -> "tuple[int, dict]":
                  "note": "only the site file is gone; nothing changed on WordPress; versions stay in history"}
 
 
-def public_site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
+def _public_site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
     body = body or {}
     try:
         url = normalise_url(str(body.get("url") or ""))
@@ -608,3 +653,92 @@ def public_site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
     except SiteError as e:
         return _err(400, "invalid", str(e))
     return 200, {"ok": True, "site": res["site"], "version": res["version"]}
+
+
+# --- the person's clicks, each with one write-log line (AE1) -----------------------------------
+
+def _item_fields(rt: Runtime, item_id: str) -> dict:
+    try:
+        item = Desk(rt.store).get(item_id)
+    except (DeskError, StoreError):
+        item = None
+    if not item:
+        return {}
+    return {"site": item.get("site") or "", "wp_type": item.get("wp_type") or "post", "wp_id": item.get("wp_id"),
+            "label": item.get("title"), "desk_item": item.get("id")}
+
+
+def site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
+    fields = (body or {}).get("fields") or {}
+    reply = _site_create(rt, body)
+    site = (reply[1].get("site") or {}).get("id") or (str(fields.get("id") or "") if isinstance(fields, dict) else "")
+    return _logged(rt, site, "add_site", reply, summary=f"added the site file {site}")
+
+
+def site_patch(rt: Runtime, site_id: str, body: dict) -> "tuple[int, dict]":
+    reply = _site_patch(rt, site_id, body)
+    if (body or {}).get("preview"):
+        return reply
+    changes = (body or {}).get("changes") or {}
+    keys = ", ".join(sorted(changes)) if isinstance(changes, dict) else ""
+    out = reply[1]
+    summary = (f"changed the site file ({keys}), version {out.get('version')}" if out.get("changed")
+               else f"saved the site file unchanged ({keys})")
+    return _logged(rt, site_id, "update_site", reply, summary=summary)
+
+
+def site_confirm(rt: Runtime, site_id: str, body: dict, profile: str = "") -> "tuple[int, dict]":
+    reply = _site_confirm(rt, site_id, body, profile)
+    level = str((body or {}).get("level") or "")
+    return _logged(rt, site_id, "confirm_level", reply, wp_type="access",
+                   summary=f"confirmed the access level {level} (role {reply[1].get('role') or '?'})")
+
+
+def site_revoke(rt: Runtime, site_id: str) -> "tuple[int, dict]":
+    reply = _site_revoke(rt, site_id)
+    return _logged(rt, site_id, "revoke_password", reply, wp_type="application_password",
+                   summary=reply[1].get("message") or "revoked the application password")
+
+
+def site_delete(rt: Runtime, site_id: str) -> "tuple[int, dict]":
+    return _logged(rt, site_id, "remove_site", _site_delete(rt, site_id),
+                   summary="removed the site file; nothing changed on WordPress")
+
+
+def public_site_create(rt: Runtime, body: dict) -> "tuple[int, dict]":
+    reply = _public_site_create(rt, body)
+    site = (reply[1].get("site") or {}).get("id") or ""
+    return _logged(rt, site, "add_public_site", reply, summary=f"added the public site {site}")
+
+
+def desk_review(rt: Runtime, item_id: str) -> "tuple[int, dict]":
+    fields = _item_fields(rt, item_id)
+    reply = _desk_review(rt, item_id)
+    if not fields:
+        return reply
+    site = fields.pop("site")
+    return _logged(rt, site, "mark_reviewed", reply, summary=f"marked desk item {item_id} reviewed", **fields)
+
+
+def desk_changes(rt: Runtime, item_id: str, body: dict) -> "tuple[int, dict]":
+    fields = _item_fields(rt, item_id)
+    reply = _desk_changes(rt, item_id, body)
+    if not fields:
+        return reply
+    site = fields.pop("site")
+    return _logged(rt, site, "ask_changes", reply, summary=f"asked for changes on desk item {item_id}", **fields)
+
+
+def site_activity(rt: Runtime, site_id: str, limit: int = 50) -> "tuple[int, dict]":
+    """GET /sites/{id}/activity: the site's last write-log lines, newest first, scrubbed."""
+    from . import activity, redact
+    try:
+        rt.site(site_id)
+    except NotFound as e:
+        return _err(404, "not_found", str(e))
+    log = activity.ActivityLog(rt.store, redact.known_secrets(rt.get_secret))
+    try:
+        found = log.query({"site": site_id, "limit": limit})
+    except (ValueError, StoreError) as e:
+        return _err(400, "bad_args", str(e))
+    return 200, {"ok": True, "site": site_id, "lines": found["lines"], "limit": found["limit"]}

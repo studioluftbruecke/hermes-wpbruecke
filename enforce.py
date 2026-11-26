@@ -39,6 +39,7 @@ class Live:
     roles: tuple = ()
     caps: tuple = ()
     caps_fp: str = ""
+    caps_fp_legacy: str = ""
     connector: Optional[str] = None
     error: Optional[str] = None      # auth (the password no longer works) | unreachable | ...
     detail: str = ""
@@ -148,7 +149,8 @@ def read_live(rt: Any, site: dict) -> Live:
     level, reason = access_mod.classify(list(roles), caps, connector) if roles else ("none", "no role")
     true = tuple(c for c in access_mod.true_caps(caps) if c not in set(roles))
     return Live(level=level, reason=reason, roles=roles, caps=true,
-                caps_fp=access_mod.caps_fingerprint(caps, roles), connector=connector)
+                caps_fp=access_mod.caps_fingerprint(caps, roles),
+                caps_fp_legacy=access_mod.legacy_caps_fingerprint(caps, roles), connector=connector)
 
 
 def _live(rt: Any, site: dict, max_age: float, refresh: bool) -> Live:
@@ -181,7 +183,7 @@ def stop_reason(access: Optional[dict], live: Live) -> str:
             return ("the user has no role on the site any more; the WPBrücke connector removes the reader role "
                     "while it is deactivated")
         return "the user has no role on this site any more"
-    return access_mod.stop_reason(access, live.level, live.caps_fp) or "the user's rights changed"
+    return access_mod.stop_reason(access, live.level, (live.caps_fp, live.caps_fp_legacy)) or "the user's rights changed"
 
 
 def standing(rt: Any, site: dict, refresh: bool = False, max_age: float = READ_TTL_S) -> Standing:
@@ -200,7 +202,7 @@ def standing(rt: Any, site: dict, refresh: bool = False, max_age: float = READ_T
     if live.error:
         return Standing(site["id"], True, pairing, access, live, None, None,
                         f"WordPress did not tell who this user is now ({live.detail or live.error})")
-    eff, level = access_mod.effective(access, live.level, live.caps_fp)
+    eff, level = access_mod.effective(access, live.level, (live.caps_fp, live.caps_fp_legacy))
     return Standing(site["id"], True, pairing, access, live, eff, level,
                     stop_reason(access, live) if eff == "stopped" else None)
 

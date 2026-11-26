@@ -25,12 +25,12 @@ PLAN = [
 
 @pytest.fixture(scope="module")
 def b():
-    return mod("gp.blocks")
+    return mod("packs.generatepress.blocks")
 
 
 @pytest.fixture(scope="module")
 def build():
-    return mod("gp.build")
+    return mod("packs.generatepress.build")
 
 
 # --- a tiny block-comment parser (balanced open/close, JSON attributes) ------------------------

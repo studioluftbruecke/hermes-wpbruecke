@@ -1,6 +1,7 @@
 """wp_desk: what waits on the review desk; notes; asking for the person's publish click (F7)."""
 from __future__ import annotations
 
+from .. import activity as activity_mod
 from ..client import WPError
 from ..desk import KINDS, STATES, Desk, DeskError
 from ..runtime import NotFound, Runtime
@@ -31,7 +32,14 @@ def refresh(rt: Runtime, desk: Desk, item: dict) -> dict:
     return desk.read_back(rt.client(rt.site(item["site"])), item)
 
 
-def handle(rt: Runtime, args: dict) -> dict:
+@activity_mod.quiet
+def _log(rt: Runtime, item: dict, action: str, summary: str, who: str) -> None:
+    activity_mod.for_runtime(rt, site=item.get("site") or "", tool="wp_desk", action=action,
+                         wp_type=item.get("wp_type") or "post", wp_id=item.get("wp_id"), label=item.get("title"),
+                         desk_item=item.get("id"), lane="chat", who=who, result="ok", summary=summary)
+
+
+def handle(rt: Runtime, args: dict, who: str = "agent") -> dict:
     action = str(args.get("action") or "")
     if action not in ACTIONS:
         return {"ok": False, "error": "bad_args", "message": f"action must be one of {', '.join(ACTIONS)}"}
@@ -51,9 +59,12 @@ def handle(rt: Runtime, args: dict) -> dict:
         if action == "get":
             return {"ok": True, "item": desk.require(item_id)}
         if action == "note":
-            return {"ok": True, "item": desk.note(item_id, "hermes", str(args.get("text") or ""))}
+            item = desk.note(item_id, "hermes", str(args.get("text") or ""))
+            _log(rt, item, "note", f"added a note to desk item {item_id}: {str(args.get('text') or '')[:100]}", who)
+            return {"ok": True, "item": item}
         if action == "request_publish":
             item = desk.move(item_id, "request_publish", "hermes", str(args.get("text") or ""))
+            _log(rt, item, "request_publish", f"asked the person to publish desk item {item_id}", who)
             return {"ok": True, "item": item, "message": ("Marked as waiting for the person's publish click. "
                     "Tell them it is on the review desk; publishing happens on their own WordPress login.")}
         if action == "refresh":
